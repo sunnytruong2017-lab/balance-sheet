@@ -52,7 +52,6 @@ function parseSheet(rows) {
     const colB = row[1];
     const colC = row[2];
 
-    // Weekly summary block: col B starts with "Week "
     if (typeof colB === "string" && colB.startsWith("Week ")) {
       weekLabel = colB;
       const nameRow = row;
@@ -75,12 +74,9 @@ function parseSheet(rows) {
       continue;
     }
 
-    // Daily block: col C is "Pooled Credit Card Tips" or "Card Tips"
     if (colC === "Pooled Credit Card Tips" || colC === "Card Tips") {
       const dateStr = formatDate(colB);
 
-      // Scan forward by label instead of fixed offsets — handles the extra
-      // blank row that Past Weeks has after the pool totals row.
       let poolRow  = null;
       let nameRow  = null;
       let posRow   = null;
@@ -97,7 +93,8 @@ function parseSheet(rows) {
 
         if (!poolRow && typeof b === "string" && /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/i.test(b)) {
           poolRow = r;
-        } else if (!nameRow && b === null && typeof c === "string" && c.trim().length > 0) {
+        } else if (!nameRow && (b === null || b === "") && typeof c === "string" && c.trim().length > 0) {
+          // ← THE FIX: Google Sheets API returns empty cells as "" not null
           nameRow = r;
         } else if (!posRow && b === "Position") {
           posRow = r;
