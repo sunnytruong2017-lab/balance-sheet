@@ -299,7 +299,7 @@ export default function PayrollPanel() {
                   <span style={{ color: "var(--text-dim)", fontSize: 11, marginLeft: 8, fontFamily: "var(--font-mono)" }}>{day.date}</span>
                 </div>
                 <span style={{ fontFamily: "var(--font-mono)", color: "var(--yellow)", fontWeight: 600, fontSize: 12 }}>
-                  Pool: {fmt(day.totalTipsPool)}
+                  Pool: {fmt(day.employees.reduce((s, e) => s + (e.totalTips || 0), 0))}
                 </span>
               </div>
               {isMobile ? (
