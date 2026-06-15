@@ -124,9 +124,74 @@ const SECTIONS = [
     desc:     "Tip payout status per employee per week",
     color:    "var(--yellow)",
     icon:     "⚡",
-    fetch:    () => fetch("/api/tip-payouts").then((r) => r.json()),
-    headers:  ["Employee", "Week / Day", "Amount", "Paid"],
-    toRow:    (e) => [e.employee, e.weekKey, e.amount||0, e.paid ? "Yes" : "No"],
+    // Fetch sheets data + existing payout records, merge so ALL employees
+    // appear regardless of whether they've been marked paid yet
+    fetch: async () => {
+      const [sheetsRes, payoutsRes] = await Promise.all([
+        fetch("/api/sheets"),
+        fetch("/api/tip-payouts"),
+      ]);
+      const sheets  = sheetsRes.ok  ? await sheetsRes.json()  : {};
+      const payouts = payoutsRes.ok ? await payoutsRes.json() : [];
+
+      // Build lookup: "weekKey::employee" -> payout record
+      const payoutMap = {};
+      payouts.forEach((p) => { payoutMap[`${p.weekKey}::${p.employee}`] = p; });
+
+      const rows = [];
+
+      // Helper to add rows from a sheet (current or past)
+      function addFromSheet(sheetData, scope) {
+        if (!sheetData || !sheetData.employees) return;
+        const weekKey = `${scope}:${sheetData.weekLabel || scope}`;
+        sheetData.employees.forEach((emp) => {
+          const key    = `${weekKey}::${emp.name}`;
+          const record = payoutMap[key];
+          rows.push({
+            employee: emp.name,
+            weekKey,
+            amount:   record?.amount ?? emp.weeklyTips ?? 0,
+            tips:     emp.weeklyTips ?? 0,
+            paid:     record?.paid ?? false,
+          });
+          delete payoutMap[key]; // mark as handled
+        });
+
+        // Daily breakdown rows
+        (sheetData.dailyBlocks || []).forEach((day) => {
+          const dayKey = `daily:${day.date}:${day.dayName}`;
+          day.employees.forEach((emp) => {
+            if (!emp.totalTips) return;
+            const key    = `${dayKey}::${emp.name}`;
+            const record = payoutMap[key];
+            rows.push({
+              employee: emp.name,
+              weekKey:  dayKey,
+              amount:   record?.amount ?? emp.totalTips ?? 0,
+              tips:     emp.totalTips ?? 0,
+              paid:     record?.paid ?? false,
+            });
+            delete payoutMap[key];
+          });
+        });
+      }
+
+      addFromSheet(sheets.current, "current");
+      addFromSheet(sheets.past,    "past");
+
+      // Add any remaining payout records not matched to sheet data
+      Object.values(payoutMap).forEach((p) => rows.push({
+        employee: p.employee,
+        weekKey:  p.weekKey,
+        amount:   p.amount || 0,
+        tips:     p.amount || 0,
+        paid:     p.paid,
+      }));
+
+      return rows;
+    },
+    headers:  ["Employee", "Week / Day", "Tips Amount", "Paid"],
+    toRow:    (e) => [e.employee, e.weekKey, (e.tips || e.amount || 0), e.paid ? "Yes" : "No"],
     filename: () => `tip_payouts.csv`,
     noDateFilter: true,
   },
@@ -183,7 +248,9 @@ export default function ExportPanel() {
         const s = section.noDateFilter ? "2000-01-01" : start;
         const e = section.noDateFilter ? format(new Date(), "yyyy-MM-dd") : end;
         const data = await section.fetch(s, e);
-        if (!Array.isArray(data) || data.length === 0) continue;
+        if (!Array.isArray(data)) continue;
+        // For tip payouts: export even if no records yet (header-only is valid)
+        if (data.length === 0 && section.id !== "payroll_tips") continue;
         const rows = data.map(section.toRow);
         const csv  = toCSV(rows, section.headers);
         downloadCSV(section.filename(s, e), csv);
