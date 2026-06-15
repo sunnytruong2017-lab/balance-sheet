@@ -5,8 +5,9 @@ import PayrollPanel from "../components/PayrollPanel";
 import SummaryBar from "../components/SummaryBar";
 import EntriesTable from "../components/EntriesTable";
 import { useTheme } from "../lib/ThemeContext";
+import AnalyticsPanel from "../components/AnalyticsPanel";
 
-const tabs = ["Daily", "Biweekly", "Monthly", "Startup", "Payroll"];
+const tabs = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Payroll"];
 
 // Default built-in categories per tab (always shown, cannot be deleted)
 const DEFAULT_EXPENSE_CATEGORIES = {
@@ -64,7 +65,7 @@ export default function Home() {
   }, []);
 
   const fetchData = useCallback(async () => {
-    if (activeTab === "Payroll") return;
+    if (activeTab === "Payroll" || activeTab === "Analytics") return;
     setLoading(true);
     try {
       const params = new URLSearchParams({ frequency });
@@ -217,6 +218,8 @@ export default function Home() {
       <main style={{ flex: 1, maxWidth: 1100, margin: "0 auto", width: "100%", padding: "28px 24px" }}>
         {activeTab === "Payroll" ? (
           <PayrollPanel />
+        ) : activeTab === "Analytics" ? (
+          <AnalyticsPanel />
         ) : (
           <>
             {/* Period nav + actions */}
