@@ -1,6 +1,6 @@
 export default async function handler(req, res) {
   const SHEET_ID = process.env.GOOGLE_SHEET_ID;
-  const API_KEY = process.env.GOOGLE_SHEETS_API_KEY;
+  const API_KEY  = process.env.GOOGLE_SHEETS_API_KEY;
 
   if (!SHEET_ID || !API_KEY) {
     return res.status(500).json({ error: "Google Sheets credentials not configured" });
@@ -8,8 +8,8 @@ export default async function handler(req, res) {
 
   try {
     const sheetDefs = [
-      { key: "current", range: "Tips [Current Week]!A1:Q200" },
-      { key: "past",    range: "Tips [Past Weeks]!A1:Q500"  },
+      { key: "current", range: "Tips [Current Week]!A1:Z200" },
+      { key: "past",    range: "Tips [Past Weeks]!A1:Z500"  },
     ];
 
     const results = {};
@@ -37,10 +37,31 @@ export default async function handler(req, res) {
   }
 }
 
-function parseSheet(rows) {
-  const EMP_COLS = [2, 3, 4, 5, 7, 8, 9, 11, 12, 13, 14, 15];
+/**
+ * Dynamically discovers employee columns from each names row rather than
+ * relying on a hardcoded index list. Adding/removing employees in the sheet
+ * is automatically reflected — no code changes needed.
+ *
+ * Rules:
+ *   - Employee columns start at col C (index 2)
+ *   - Any column whose cell in the names row contains a non-empty string is
+ *     treated as an employee column; blank/spacer columns are skipped
+ *   - The same discovery runs independently for the weekly summary block and
+ *     for each daily block, so the two sheets can have different layouts
+ */
+function getEmpCols(nameRow) {
+  const cols = [];
+  for (let i = 2; i < nameRow.length; i++) {
+    const val = nameRow[i];
+    if (val && typeof val === "string" && val.trim().length > 0) {
+      cols.push(i);
+    }
+  }
+  return cols;
+}
 
-  const dailyBlocks = [];
+function parseSheet(rows) {
+  const dailyBlocks   = [];
   let weekLabel       = null;
   let employees       = [];
   let weeklyTips      = {};
@@ -52,28 +73,35 @@ function parseSheet(rows) {
     const colB = row[1];
     const colC = row[2];
 
+    // ── Weekly summary block: col B starts with "Week " ──────────────
     if (typeof colB === "string" && colB.startsWith("Week ")) {
       weekLabel = colB;
+
       const nameRow = row;
       const posRow  = rows[i + 1] || [];
       const tipsRow = rows[i + 2] || [];
 
+      // Discover employee columns dynamically from this names row
+      const empCols = getEmpCols(nameRow);
+
       const empList = [];
-      for (const col of EMP_COLS) {
+      for (const col of empCols) {
         const name = nameRow[col];
         if (name && typeof name === "string" && name.trim()) {
-          const pos  = posRow[col] || "";
+          const pos  = posRow[col]  || "";
           const tips = toNum(tipsRow[col]);
           empList.push({ name: name.trim(), position: pos, weeklyTips: tips });
           weeklyTips[name.trim()] = tips;
         }
       }
+
       employees       = empList;
       weeklyTipsTotal = empList.reduce((s, e) => s + e.weeklyTips, 0);
       i += 3;
       continue;
     }
 
+    // ── Daily block: col C is "Pooled Credit Card Tips" or "Card Tips" ──
     if (colC === "Pooled Credit Card Tips" || colC === "Card Tips") {
       const dateStr = formatDate(colB);
 
@@ -94,7 +122,7 @@ function parseSheet(rows) {
         if (!poolRow && typeof b === "string" && /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/i.test(b)) {
           poolRow = r;
         } else if (!nameRow && (b === null || b === "") && typeof c === "string" && c.trim().length > 0) {
-          // ← THE FIX: Google Sheets API returns empty cells as "" not null
+          // Names row: col B empty ("" from Sheets API), col C is first employee name
           nameRow = r;
         } else if (!posRow && b === "Position") {
           posRow = r;
@@ -112,6 +140,9 @@ function parseSheet(rows) {
         }
       }
 
+      // Discover employee columns dynamically from this day's names row
+      const empCols = nameRow ? getEmpCols(nameRow) : [];
+
       const dayName       = poolRow ? (poolRow[1] || "") : "";
       const totalTipsPool = poolRow ? (toNum(poolRow[6]) || toNum(poolRow[4])) : 0;
 
@@ -123,7 +154,7 @@ function parseSheet(rows) {
       const tr = totalRow || [];
 
       const dayEmployees = [];
-      for (const col of EMP_COLS) {
+      for (const col of empCols) {
         const name = nr[col];
         if (name && typeof name === "string" && name.trim()) {
           dayEmployees.push({
