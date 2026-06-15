@@ -109,3 +109,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   border-radius: var(--radius-sm);
   transition: none !important;
 }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
