@@ -3,6 +3,7 @@ import { format, parseISO } from "date-fns";
 import EntriesTable from "./EntriesTable";
 import PayrollPanel from "./PayrollPanel";
 import AnalyticsPanel from "./AnalyticsPanel";
+import ExportPanel from "./ExportPanel";
 
 const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
 
@@ -33,6 +34,11 @@ const TAB_ICONS = {
       <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
     </svg>
   ),
+  Export: (active) => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+    </svg>
+  ),
   Payroll: (active) => (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round">
       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
@@ -40,7 +46,7 @@ const TAB_ICONS = {
   ),
 };
 
-const TABS = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Payroll"];
+const TABS = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Payroll", "Export"];
 
 export default function MobileLayout({
   activeTab, setActiveTab,
@@ -53,7 +59,7 @@ export default function MobileLayout({
   theme, toggleTheme,
 }) {
   const [fabOpen, setFabOpen] = useState(false);
-  const isTracking = !["Analytics", "Payroll"].includes(activeTab);
+  const isTracking = !["Analytics", "Payroll", "Export"].includes(activeTab);
   const netPositive = net >= 0;
 
   return (
@@ -148,6 +154,7 @@ export default function MobileLayout({
       <main style={{ flex: 1, padding: "16px", display: "flex", flexDirection: "column", gap: 16 }}>
         {activeTab === "Payroll" && <PayrollPanel />}
         {activeTab === "Analytics" && <AnalyticsPanel />}
+        {activeTab === "Export" && <ExportPanel />}
 
         {isTracking && (
           <>
