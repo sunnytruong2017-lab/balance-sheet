@@ -6,6 +6,8 @@ import SummaryBar from "../components/SummaryBar";
 import EntriesTable from "../components/EntriesTable";
 import { useTheme } from "../lib/ThemeContext";
 import AnalyticsPanel from "../components/AnalyticsPanel";
+import MobileLayout from "../components/MobileLayout";
+import { useIsMobile } from "../lib/useIsMobile";
 
 const tabs = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Payroll"];
 
@@ -31,6 +33,7 @@ function fmt(n) {
 
 export default function Home() {
   const { theme, toggle } = useTheme();
+  const isMobile = useIsMobile();
   const [activeTab, setActiveTab]         = useState("Daily");
   const [modal, setModal]                 = useState(null);
   const [expenses, setExpenses]           = useState([]);
@@ -173,6 +176,53 @@ export default function Home() {
     else if (activeTab === "Biweekly") d.setDate(d.getDate() + delta * 7);
     else                            d.setMonth(d.getMonth() + delta);
     setReferenceDate(d);
+  }
+
+  // Shared props for both layouts
+  const sharedProps = {
+    activeTab, setActiveTab,
+    expenses, income, loading,
+    referenceDate, periodLabel, shiftDate,
+    onAddExpense:   () => setModal({ type: "expense" }),
+    onAddIncome:    () => setModal({ type: "income"  }),
+    onEditExpense:  (e) => setModal({ type: "expense", entry: e }),
+    onEditIncome:   (e) => setModal({ type: "income",  entry: e }),
+    onDeleteExpense: (id) => handleDelete("expenses", id),
+    onDeleteIncome:  (id) => handleDelete("income",   id),
+    totalIncome, totalExpenses, net,
+    theme, toggleTheme: toggle,
+  };
+
+  if (isMobile) {
+    return (
+      <>
+        <MobileLayout {...sharedProps} />
+        {modal?.type === "expense" && (
+          <EntryModal
+            title={modal.entry ? "Edit Expense" : "New Expense"}
+            entry={modal.entry}
+            categories={activeExpenseCategories}
+            type="expense"
+            defaultDate={format(referenceDate, "yyyy-MM-dd")}
+            onSave={handleSaveExpense}
+            onClose={() => setModal(null)}
+            onCategoryAdded={handleCategoryAdded}
+            onCategoryDeleted={handleCategoryDeleted}
+          />
+        )}
+        {modal?.type === "income" && (
+          <EntryModal
+            title={modal.entry ? "Edit Income" : "New Income"}
+            entry={modal.entry}
+            categories={[]}
+            type="income"
+            defaultDate={format(referenceDate, "yyyy-MM-dd")}
+            onSave={handleSaveIncome}
+            onClose={() => setModal(null)}
+          />
+        )}
+      </>
+    );
   }
 
   return (
