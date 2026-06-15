@@ -71,7 +71,7 @@ export default function MobileLayout({
       }}>
         <div style={{ padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-0.5px" }}>AN</span>
+            <img src="/logo.png" alt="AN" style={{ height: 26, width: "auto", display: "block" }} />
             <span style={{ color: "var(--text-dim)", fontSize: 12 }}>Ledger</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
