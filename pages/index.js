@@ -7,6 +7,14 @@ import EntriesTable from "../components/EntriesTable";
 
 const tabs = ["Daily", "Biweekly", "Monthly", "Startup", "Payroll"];
 
+// Default built-in categories per tab (always shown, cannot be deleted)
+const DEFAULT_EXPENSE_CATEGORIES = {
+  Daily:    ["Supplies", "Groceries", "Other"],
+  Biweekly: ["Employee Pay", "Employee Tips", "Other"],
+  Monthly:  ["Rent", "Utilities", "Taxes", "Other"],
+  Startup:  ["Equipment", "Renovation", "Permits & Licenses", "Initial Inventory", "Furniture", "Marketing", "Other"],
+};
+
 function getDateRange(tab, ref) {
   const d = ref || new Date();
   if (tab === "Daily")     return { start: format(startOfDay(d), "yyyy-MM-dd"), end: format(endOfDay(d), "yyyy-MM-dd") };
@@ -15,27 +23,43 @@ function getDateRange(tab, ref) {
   return { start: "2000-01-01", end: format(new Date(), "yyyy-MM-dd") };
 }
 
-const EXPENSE_CATEGORIES = {
-  Daily:    ["Supplies", "Groceries", "Other"],
-  Biweekly: ["Employee Pay", "Employee Tips", "Other"],
-  Monthly:  ["Rent", "Utilities", "Taxes", "Other"],
-  Startup:  ["Equipment", "Renovation", "Permits & Licenses", "Initial Inventory", "Furniture", "Marketing", "Other"],
-};
-
 function fmt(n) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
 }
 
 export default function Home() {
-  const [activeTab, setActiveTab]       = useState("Daily");
-  const [modal, setModal]               = useState(null);
-  const [expenses, setExpenses]         = useState([]);
-  const [income, setIncome]             = useState([]);
-  const [loading, setLoading]           = useState(false);
+  const [activeTab, setActiveTab]         = useState("Daily");
+  const [modal, setModal]                 = useState(null);
+  const [expenses, setExpenses]           = useState([]);
+  const [income, setIncome]               = useState([]);
+  const [loading, setLoading]             = useState(false);
   const [referenceDate, setReferenceDate] = useState(new Date());
+  // Custom categories from Notion: { Daily: [...], Biweekly: [...], Monthly: [...], Startup: [...] }
+  const [customCategories, setCustomCategories] = useState({});
 
   const dateRange = getDateRange(activeTab, referenceDate);
   const frequency = activeTab === "Startup" ? "Startup" : activeTab;
+
+  // Merge defaults + custom for the active tab
+  const activeExpenseCategories = [
+    ...(DEFAULT_EXPENSE_CATEGORIES[activeTab] || []),
+    ...(customCategories[activeTab] || []),
+  ];
+
+  // Load custom categories on mount
+  useEffect(() => {
+    fetch("/api/categories")
+      .then((r) => r.ok ? r.json() : [])
+      .then((cats) => {
+        const grouped = {};
+        cats.forEach(({ name, tab }) => {
+          if (!grouped[tab]) grouped[tab] = [];
+          grouped[tab].push(name);
+        });
+        setCustomCategories(grouped);
+      })
+      .catch(() => {});
+  }, []);
 
   const fetchData = useCallback(async () => {
     if (activeTab === "Payroll") return;
@@ -92,6 +116,42 @@ export default function Home() {
     fetchData();
   }
 
+  async function handleCategoryAdded(name) {
+    const res = await fetch("/api/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, tab: activeTab, type: "expense" }),
+    });
+    if (!res.ok) throw new Error("Failed to save category");
+    setCustomCategories((prev) => ({
+      ...prev,
+      [activeTab]: [...(prev[activeTab] || []), name],
+    }));
+  }
+
+  async function handleCategoryDeleted(name) {
+    // Can't delete defaults
+    if ((DEFAULT_EXPENSE_CATEGORIES[activeTab] || []).includes(name)) return;
+
+    // Find the Notion page id from a fresh fetch
+    const res = await fetch("/api/categories");
+    if (!res.ok) return;
+    const cats = await res.json();
+    const match = cats.find((c) => c.name === name && c.tab === activeTab);
+    if (!match) return;
+
+    await fetch("/api/categories", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: match.id }),
+    });
+
+    setCustomCategories((prev) => ({
+      ...prev,
+      [activeTab]: (prev[activeTab] || []).filter((c) => c !== name),
+    }));
+  }
+
   const totalIncome   = income.reduce((s, e) => s + (e.cashRevenue || 0) + (e.cardRevenue || 0) + (e.tipCash || 0) + (e.tipCard || 0), 0);
   const totalExpenses = expenses.reduce((s, e) => s + (e.amount || 0), 0);
   const net = totalIncome - totalExpenses;
@@ -106,9 +166,9 @@ export default function Home() {
 
   function shiftDate(delta) {
     const d = new Date(referenceDate);
-    if (activeTab === "Daily")     d.setDate(d.getDate() + delta);
+    if (activeTab === "Daily")      d.setDate(d.getDate() + delta);
     else if (activeTab === "Biweekly") d.setDate(d.getDate() + delta * 7);
-    else                           d.setMonth(d.getMonth() + delta);
+    else                            d.setMonth(d.getMonth() + delta);
     setReferenceDate(d);
   }
 
@@ -134,24 +194,16 @@ export default function Home() {
 
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px", display: "flex", gap: 4 }}>
           {tabs.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              style={{
-                padding: "10px 16px",
-                fontSize: 13,
-                fontWeight: activeTab === tab ? 600 : 400,
-                color: activeTab === tab ? "var(--text)" : "var(--text-muted)",
-                borderBottom: `2px solid ${activeTab === tab ? "var(--accent)" : "transparent"}`,
-                transition: "all 0.15s ease",
-                background: "none",
-                border: "none",
-                borderBottom: `2px solid ${activeTab === tab ? "var(--accent)" : "transparent"}`,
-                cursor: "pointer",
-              }}
-            >
-              {tab}
-            </button>
+            <button key={tab} onClick={() => setActiveTab(tab)} style={{
+              padding: "10px 16px", fontSize: 13,
+              fontWeight: activeTab === tab ? 600 : 400,
+              color: activeTab === tab ? "var(--text)" : "var(--text-muted)",
+              borderBottom: `2px solid ${activeTab === tab ? "var(--accent)" : "transparent"}`,
+              transition: "all 0.15s ease",
+              background: "none", border: "none",
+              borderBottom: `2px solid ${activeTab === tab ? "var(--accent)" : "transparent"}`,
+              cursor: "pointer",
+            }}>{tab}</button>
           ))}
         </div>
       </header>
@@ -175,7 +227,6 @@ export default function Home() {
                   <span style={{ fontSize: 15, fontWeight: 600 }}>Startup Costs</span>
                 )}
               </div>
-
               <div style={{ display: "flex", gap: 8 }}>
                 {activeTab !== "Startup" && (
                   <ActionBtn onClick={() => setModal({ type: "income" })} color="var(--accent)" label="+ Income" />
@@ -184,14 +235,9 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Two-column grid */}
             <div style={{ display: "grid", gridTemplateColumns: activeTab === "Startup" ? "1fr" : "1fr 1fr", gap: 20 }}>
               <EntriesTable
-                title="Expenses"
-                entries={expenses}
-                type="expense"
-                loading={loading}
-                color="var(--red)"
+                title="Expenses" entries={expenses} type="expense" loading={loading} color="var(--red)"
                 onEdit={(e) => setModal({ type: "expense", entry: e })}
                 onDelete={(id) => handleDelete("expenses", id)}
                 renderAmount={(e) => fmt(e.amount)}
@@ -199,11 +245,7 @@ export default function Home() {
               />
               {activeTab !== "Startup" && (
                 <EntriesTable
-                  title="Income"
-                  entries={income}
-                  type="income"
-                  loading={loading}
-                  color="var(--accent)"
+                  title="Income" entries={income} type="income" loading={loading} color="var(--accent)"
                   onEdit={(e) => setModal({ type: "income", entry: e })}
                   onDelete={(id) => handleDelete("income", id)}
                   renderAmount={(e) => fmt((e.cashRevenue || 0) + (e.cardRevenue || 0) + (e.tipCash || 0) + (e.tipCard || 0))}
@@ -226,11 +268,13 @@ export default function Home() {
         <EntryModal
           title={modal.entry ? "Edit Expense" : "New Expense"}
           entry={modal.entry}
-          categories={EXPENSE_CATEGORIES[activeTab] || EXPENSE_CATEGORIES.Daily}
+          categories={activeExpenseCategories}
           type="expense"
           defaultDate={format(referenceDate, "yyyy-MM-dd")}
           onSave={handleSaveExpense}
           onClose={() => setModal(null)}
+          onCategoryAdded={handleCategoryAdded}
+          onCategoryDeleted={handleCategoryDeleted}
         />
       )}
       {modal?.type === "income" && (
@@ -251,44 +295,29 @@ export default function Home() {
 function NavBtn({ onClick, children }) {
   const [hover, setHover] = useState(false);
   return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+    <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       style={{
         width: 28, height: 28, borderRadius: "50%",
         background: hover ? "var(--surface2)" : "transparent",
         color: hover ? "var(--text)" : "var(--text-muted)",
         display: "flex", alignItems: "center", justifyContent: "center",
-        fontSize: 20, lineHeight: 1,
-        transition: "all 0.15s ease",
+        fontSize: 20, lineHeight: 1, transition: "all 0.15s ease",
         cursor: "pointer", border: "none",
-      }}
-    >
-      {children}
-    </button>
+      }}>{children}</button>
   );
 }
 
 function ActionBtn({ onClick, color, label }) {
   const [hover, setHover] = useState(false);
   return (
-    <button
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+    <button onClick={onClick} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       style={{
-        padding: "7px 14px",
-        borderRadius: 6,
+        padding: "7px 14px", borderRadius: 6,
         border: `1px solid ${color}`,
         color: hover ? "#000" : color,
         background: hover ? color : "transparent",
         fontSize: 13, fontWeight: 500,
-        transition: "all 0.15s ease",
-        cursor: "pointer",
-      }}
-    >
-      {label}
-    </button>
+        transition: "all 0.15s ease", cursor: "pointer",
+      }}>{label}</button>
   );
 }
