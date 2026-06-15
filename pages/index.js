@@ -8,8 +8,9 @@ import { useTheme } from "../lib/ThemeContext";
 import AnalyticsPanel from "../components/AnalyticsPanel";
 import MobileLayout from "../components/MobileLayout";
 import { useIsMobile } from "../lib/useIsMobile";
+import ExportPanel from "../components/ExportPanel";
 
-const tabs = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Payroll"];
+const tabs = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Payroll", "Export"];
 
 // Default built-in categories per tab (always shown, cannot be deleted)
 const DEFAULT_EXPENSE_CATEGORIES = {
@@ -270,6 +271,8 @@ export default function Home() {
           <PayrollPanel />
         ) : activeTab === "Analytics" ? (
           <AnalyticsPanel />
+        ) : activeTab === "Export" ? (
+          <ExportPanel />
         ) : (
           <>
             {/* Period nav + actions */}
@@ -294,13 +297,6 @@ export default function Home() {
             </div>
 
             <div style={{ display: "grid", gridTemplateColumns: activeTab === "Startup" ? "1fr" : "1fr 1fr", gap: 20 }}>
-              <EntriesTable
-                title="Expenses" entries={expenses} type="expense" loading={loading} color="var(--red)"
-                onEdit={(e) => setModal({ type: "expense", entry: e })}
-                onDelete={(id) => handleDelete("expenses", id)}
-                renderAmount={(e) => fmt(e.amount)}
-                renderMeta={(e) => e.category}
-              />
               {activeTab !== "Startup" && (
                 <EntriesTable
                   title="Income" entries={income} type="income" loading={loading} color="var(--accent)"
@@ -316,6 +312,13 @@ export default function Home() {
                   }}
                 />
               )}
+              <EntriesTable
+                title="Expenses" entries={expenses} type="expense" loading={loading} color="var(--red)"
+                onEdit={(e) => setModal({ type: "expense", entry: e })}
+                onDelete={(id) => handleDelete("expenses", id)}
+                renderAmount={(e) => fmt(e.amount)}
+                renderMeta={(e) => e.category}
+              />
             </div>
           </>
         )}
