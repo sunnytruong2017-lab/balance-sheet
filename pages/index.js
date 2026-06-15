@@ -233,7 +233,7 @@ export default function Home() {
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 56 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.5px" }}>AN</span>
+              <img src="/logo.png" alt="AN" style={{ height: 32, width: "auto", display: "block" }} />
               <span style={{ color: "var(--text-dim)", fontSize: 13 }}>Restaurant Ledger</span>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
