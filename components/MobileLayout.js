@@ -57,7 +57,7 @@ export default function MobileLayout({
   const netPositive = net >= 0;
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", paddingBottom: 72 }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", paddingBottom: "calc(56px + env(safe-area-inset-bottom, 0px))" }}>
       {/* Mobile header */}
       <header style={{
         position: "sticky", top: 0, zIndex: 50,
@@ -222,25 +222,29 @@ export default function MobileLayout({
         />
       )}
 
-      {/* Bottom tab bar */}
+      {/* Bottom tab bar — fixed 56px, never resizes */}
       <nav style={{
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
+        height: 56,
         background: "var(--surface)", borderTop: "1px solid var(--border)",
-        display: "flex",
-        paddingBottom: "env(safe-area-inset-bottom)",
+        display: "flex", alignItems: "stretch",
+        // iOS safe area: add padding-bottom via CSS but keep height fixed
+        boxSizing: "content-box",
+        paddingBottom: "env(safe-area-inset-bottom, 0px)",
       }}>
         {TABS.map((tab) => {
           const active = activeTab === tab;
           return (
             <button key={tab} onClick={() => setActiveTab(tab)} style={{
-              flex: 1, padding: "8px 4px 6px",
-              display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+              flex: 1, height: 56,
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3,
               background: "none", border: "none", cursor: "pointer",
               color: active ? "var(--accent)" : "var(--text-dim)",
               transition: "color 0.15s ease",
+              flexShrink: 0, minWidth: 0,
             }}>
               {TAB_ICONS[tab]?.(active)}
-              <span style={{ fontSize: 9, fontWeight: active ? 600 : 400, letterSpacing: "0.02em" }}>
+              <span style={{ fontSize: 9, fontWeight: active ? 600 : 400, letterSpacing: "0.02em", lineHeight: 1 }}>
                 {tab}
               </span>
             </button>
