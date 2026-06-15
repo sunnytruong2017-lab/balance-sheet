@@ -4,6 +4,7 @@ import EntryModal from "../components/EntryModal";
 import PayrollPanel from "../components/PayrollPanel";
 import SummaryBar from "../components/SummaryBar";
 import EntriesTable from "../components/EntriesTable";
+import { useTheme } from "../lib/ThemeContext";
 
 const tabs = ["Daily", "Biweekly", "Monthly", "Startup", "Payroll"];
 
@@ -28,6 +29,7 @@ function fmt(n) {
 }
 
 export default function Home() {
+  const { theme, toggle } = useTheme();
   const [activeTab, setActiveTab]         = useState("Daily");
   const [modal, setModal]                 = useState(null);
   const [expenses, setExpenses]           = useState([]);
@@ -182,9 +184,12 @@ export default function Home() {
               <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.5px" }}>AN</span>
               <span style={{ color: "var(--text-dim)", fontSize: 13 }}>Restaurant Ledger</span>
             </div>
-            <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-              {format(new Date(), "EEE, MMM d")}
-            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                {format(new Date(), "EEE, MMM d")}
+              </span>
+              <ThemeToggle theme={theme} onToggle={toggle} />
+            </div>
           </div>
         </div>
 
@@ -319,5 +324,61 @@ function ActionBtn({ onClick, color, label }) {
         fontSize: 13, fontWeight: 500,
         transition: "all 0.15s ease", cursor: "pointer",
       }}>{label}</button>
+  );
+}
+
+function ThemeToggle({ theme, onToggle }) {
+  const isDark = theme === "dark";
+  const [hover, setHover] = useState(false);
+
+  return (
+    <button
+      onClick={onToggle}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      aria-label="Toggle theme"
+      style={{
+        width: 44,
+        height: 24,
+        borderRadius: 12,
+        background: isDark
+          ? hover ? "#2e3245" : "#252836"
+          : hover ? "#d0d3de" : "#e2e4ec",
+        border: "1px solid var(--border)",
+        position: "relative",
+        cursor: "pointer",
+        flexShrink: 0,
+        transition: "background 0.25s ease, border-color 0.25s ease",
+      }}
+    >
+      {/* Track icons */}
+      <span style={{
+        position: "absolute", left: 5, top: "50%", transform: "translateY(-50%)",
+        fontSize: 10, lineHeight: 1, opacity: isDark ? 0.4 : 0,
+        transition: "opacity 0.2s ease",
+        pointerEvents: "none",
+      }}>🌙</span>
+      <span style={{
+        position: "absolute", right: 5, top: "50%", transform: "translateY(-50%)",
+        fontSize: 10, lineHeight: 1, opacity: isDark ? 0 : 0.7,
+        transition: "opacity 0.2s ease",
+        pointerEvents: "none",
+      }}>☀️</span>
+
+      {/* Thumb */}
+      <span style={{
+        position: "absolute",
+        top: 3,
+        left: isDark ? 3 : 23,
+        width: 16,
+        height: 16,
+        borderRadius: "50%",
+        background: isDark ? "var(--text-dim)" : "var(--accent)",
+        transition: "left 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.25s ease",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontSize: 8,
+      }} />
+    </button>
   );
 }
