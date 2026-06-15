@@ -110,19 +110,46 @@ function parseSheet(rows) {
       weekLabel = colB;
 
       const nameRow = row;
-      const posRow  = rows[i + 1] || [];
-      const tipsRow = rows[i + 2] || [];
+
+      // Scan forward by label — don't use fixed offsets since the block may
+      // have extra rows (Total Hours Worked) between Position and Weekly Tips.
+      let posRow  = null;
+      let tipsRow = null;
+      let blockEnd = i + 1;
+
+      for (let j = i + 1; j < Math.min(i + 8, rows.length); j++) {
+        const r = rows[j] || [];
+        const b = r[1];
+
+        if (!posRow && typeof b === "string" && b === "Position") {
+          posRow = r;
+        } else if (!tipsRow && typeof b === "string" && b.startsWith("Weekly Tips")) {
+          // Weekly Tips may also be a merged cell — check if values are on
+          // this row or the next
+          if (hasNumericData(r)) {
+            tipsRow = r;
+          } else {
+            const nextRow = rows[j + 1] || [];
+            tipsRow = hasNumericData(nextRow) ? nextRow : r;
+          }
+          blockEnd = j + 2;
+          break;
+        }
+      }
+
+      if (!posRow)  posRow  = rows[i + 1] || [];
+      if (!tipsRow) tipsRow = rows[i + 2] || [];
 
       const empList = getEmployees(nameRow).map(({ name, cols }) => ({
         name,
-        position:   posRow[cols[0]] || "",
+        position:   (posRow[cols[0]] || ""),
         weeklyTips: sumCols(tipsRow, cols),
       }));
 
       employees       = empList;
       weeklyTipsTotal = empList.reduce((s, e) => s + e.weeklyTips, 0);
       empList.forEach((e) => { weeklyTips[e.name] = e.weeklyTips; });
-      i += 3;
+      i = blockEnd;
       continue;
     }
 
