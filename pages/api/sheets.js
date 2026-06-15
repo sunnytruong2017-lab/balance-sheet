@@ -38,9 +38,8 @@ export default async function handler(req, res) {
 }
 
 /**
- * Dynamically discovers employee columns by scanning the names row for
- * non-empty strings starting at col C (index 2). Blank spacer columns
- * are skipped automatically.
+ * Returns column indices (starting at 2) where the nameRow has a non-empty
+ * string — these are employee columns. Blank/spacer columns are skipped.
  */
 function getEmpCols(nameRow) {
   const cols = [];
@@ -54,27 +53,37 @@ function getEmpCols(nameRow) {
 }
 
 /**
- * Sheet layout for each daily block (Current Week):
+ * Returns true if a row has at least one numeric value > 0 in employee
+ * columns (index 2+). Used to distinguish value rows from label/blank rows.
+ */
+function hasNumericData(row) {
+  return (row || []).slice(2).some((v) => typeof v === "number" && v > 0);
+}
+
+/**
+ * Sheet layout per daily block (Current Week, Tips [Current Week] tab):
  *
- *   Row A (trigger): colB = date "06/09/2026", colC = "Pooled Credit Card Tips"
- *                    colC=$92.06, colD=$8.00, colE=$100.06 (Total Tips),
- *                    colF=$5.60, colG=$0.28/hr, colH=$2.40, colI=$0.08/hr
- *   Row B:           colB = "Tuesday",  (same pool values repeated or blank)
- *   Row C:           colB = "",  colC..= employee names  ← names row
- *   Row D:           colB = "Position", colC..= positions
- *   Row E:           colB = "Hours Worked", colC..= hours
- *   Row F+G:         colB = "Credit Card Tips\n(Based on Shifts)" — MERGED CELL
- *                    label may appear on row F or G; values on same row as label
- *   Row H+I:         colB = "Cash Tips\n(Based on Hours)" — MERGED CELL
- *   Row J:           colB = "Total Tips Allocated", colC..= totals
+ *   Row 12: colB=date, colC="Pooled Credit Card Tips", colD="Pooled Cash Tips",
+ *           colE="Total Tips", colF="Server Cash Tips", ...   ← LABEL row
+ *   Row 13: colB="Tuesday", colC=$92.06, colD=$8.00, colE=$100.06, ...  ← VALUES row
+ *   Row 14: (blank)
+ *   Row 15: colB="", colC="Khôi", colD="Ngân", ...           ← NAMES row
+ *   Row 16: colB="Position", colC=Server, ...                 ← POSITION row
+ *   Row 17: colB="Hours Worked", colC=10.26, ...              ← HOURS row
+ *   Row 18: colB="Credit Card Tips\n(Based on Shifts)", values may be $0 ← CC LABEL
+ *   Row 19: colB="", colC=$32.22, ...                         ← CC VALUES (merged cell)
+ *   Row 20: colB="Cash Tips\n(Based on Hours)", values may be $0  ← CASH LABEL
+ *   Row 21: colB="", colC=$2.87, ...                          ← CASH VALUES (merged cell)
+ *   Row 22: (blank)
+ *   Row 23: colB="Total Tips Allocated", colC=$35.09, ...     ← TOTALS row
  *
- * Key insight: the TRIGGER row itself (row A) holds the pool totals.
- *   colE (index 4) = Total Tips pool — this is the reliable column to read.
+ * Key insight: "Credit Card Tips" and "Cash Tips" are VERTICALLY MERGED cells.
+ * The Sheets API puts the label text on the first row of the merge and "" on
+ * the second. The actual dollar values appear on the SECOND row of the merge.
+ * So after finding the label row, we always check the next row for real data.
  *
- * "Credit Card Tips" label spans 2 merged rows. The Sheets API returns the
- * label text on the FIRST of the two rows and "" on the second. We must NOT
- * mistake the second blank row for the names row, so we only accept a names
- * row AFTER we've already found the pool/day-name rows.
+ * Pool total: read from the VALUES row (day-name row) using the column index
+ * where the LABEL row says "Total Tips".
  */
 function parseSheet(rows) {
   const dailyBlocks   = [];
@@ -89,7 +98,7 @@ function parseSheet(rows) {
     const colB = row[1];
     const colC = row[2];
 
-    // ── Weekly summary block ──────────────────────────────────────────
+    // ── Weekly summary block: col B starts with "Week " ──────────────
     if (typeof colB === "string" && colB.startsWith("Week ")) {
       weekLabel = colB;
 
@@ -102,10 +111,12 @@ function parseSheet(rows) {
       for (const col of empCols) {
         const name = nameRow[col];
         if (name && typeof name === "string" && name.trim()) {
-          const pos  = posRow[col] || "";
-          const tips = toNum(tipsRow[col]);
-          empList.push({ name: name.trim(), position: pos, weeklyTips: tips });
-          weeklyTips[name.trim()] = tips;
+          empList.push({
+            name:       name.trim(),
+            position:   posRow[col] || "",
+            weeklyTips: toNum(tipsRow[col]),
+          });
+          weeklyTips[name.trim()] = toNum(tipsRow[col]);
         }
       }
 
@@ -115,44 +126,46 @@ function parseSheet(rows) {
       continue;
     }
 
-    // ── Daily block trigger ───────────────────────────────────────────
-    // Triggered when colC is the pool header label.
-    // The TRIGGER ROW itself (row i) contains the pool totals:
-    //   colC = Pooled CC Tips, colD = Pooled Cash Tips, colE = Total Tips
+    // ── Daily block: triggered by the pool label row ──────────────────
     if (colC === "Pooled Credit Card Tips" || colC === "Card Tips") {
       const dateStr = formatDate(colB);
 
-      // Read pool total directly from the trigger row:
-      // colE (index 4) = Total Tips for Current Week
-      // colC (index 2) = Pooled CC Tips (fallback for Past Weeks layout)
-      const triggerRow    = row;
-      const totalTipsPool = toNum(triggerRow[4]) || toNum(triggerRow[2]);
+      // Row i   = label row  (colC = "Pooled Credit Card Tips", colE = "Total Tips")
+      // Row i+1 = values row (colB = "Tuesday", colE = $100.06)
+      // Find which column in the label row says "Total Tips"
+      const labelRow  = row;
+      const valRow    = rows[i + 1] || [];
+      const dayName   = valRow[1] || "";
 
-      // Now scan forward to find labelled rows
-      let dayName  = "";
+      let totalTipsCol = -1;
+      for (let k = 2; k < labelRow.length; k++) {
+        if (typeof labelRow[k] === "string" &&
+            labelRow[k].trim().toLowerCase() === "total tips") {
+          totalTipsCol = k;
+          break;
+        }
+      }
+      // Pool total from values row at the Total Tips column
+      // Fall back to summing employee tips later if column not found
+      const totalTipsPool = totalTipsCol >= 0 ? toNum(valRow[totalTipsCol]) : 0;
+
+      // Scan forward from i+2 for the inner data rows
       let nameRow  = null;
       let posRow   = null;
       let hoursRow = null;
       let ccRow    = null;
       let cashRow  = null;
       let totalRow = null;
-      let blockEnd = i + 1;
-      let foundDayName = false;
+      let blockEnd = i + 2;
 
-      for (let j = i + 1; j < Math.min(i + 16, rows.length); j++) {
+      for (let j = i + 2; j < Math.min(i + 20, rows.length); j++) {
         const r = rows[j] || [];
         const b = r[1];
         const c = r[2];
 
-        // Day name row (e.g. "Tuesday") — col B matches day name
-        if (!foundDayName && typeof b === "string" && /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/i.test(b)) {
-          dayName = b;
-          foundDayName = true;
-
-        // Names row: col B is empty AND col C is a non-empty string (employee name)
-        // Only accept AFTER we've found the day name to avoid picking up
-        // the second row of a merged "Credit Card Tips" cell
-        } else if (!nameRow && foundDayName && (b === null || b === "") && typeof c === "string" && c.trim().length > 0) {
+        // Names row: col B empty, col C is a non-empty employee name string
+        if (!nameRow && (b === null || b === "") &&
+            typeof c === "string" && c.trim().length > 0) {
           nameRow = r;
 
         } else if (!posRow && b === "Position") {
@@ -161,20 +174,31 @@ function parseSheet(rows) {
         } else if (!hoursRow && b === "Hours Worked") {
           hoursRow = r;
 
-        // Credit Card Tips — label may be on either of two merged rows.
-        // Accept any row whose col B starts with "Credit Card" OR whose
-        // col B is empty but we haven't found ccRow yet AND hoursRow is set
-        // (meaning we're past the names/position/hours rows).
+        // CC Tips: label is on this row, but values are on the NEXT row
+        // (vertically merged cell — Sheets API splits across two rows)
         } else if (!ccRow && typeof b === "string" && b.startsWith("Credit Card")) {
-          ccRow = r;
-        } else if (!ccRow && hoursRow && (b === null || b === "") && !nameRow === false && !cashRow) {
-          // Second row of merged "Credit Card Tips" cell — values are here
-          // Only pick this up if the row has numeric data in employee columns
-          const hasData = r.slice(2).some((v) => typeof v === "number" && v > 0);
-          if (hasData) ccRow = r;
+          // Prefer the next row if it has numeric data (the merge's value row)
+          const nextRow = rows[j + 1] || [];
+          if (hasNumericData(nextRow)) {
+            ccRow = nextRow;
+            j++;  // skip the value row since we just consumed it
+          } else if (hasNumericData(r)) {
+            ccRow = r;  // values are on the label row itself
+          } else {
+            ccRow = r;  // fallback
+          }
 
+        // Cash Tips: same merged-cell pattern as CC Tips
         } else if (!cashRow && typeof b === "string" && b.startsWith("Cash Tips")) {
-          cashRow = r;
+          const nextRow = rows[j + 1] || [];
+          if (hasNumericData(nextRow)) {
+            cashRow = nextRow;
+            j++;
+          } else if (hasNumericData(r)) {
+            cashRow = r;
+          } else {
+            cashRow = r;
+          }
 
         } else if (!totalRow && typeof b === "string" &&
                    (b.startsWith("Total Tips") || b.startsWith("Tips Portioned"))) {
@@ -185,7 +209,6 @@ function parseSheet(rows) {
       }
 
       const empCols = nameRow ? getEmpCols(nameRow) : [];
-
       const nr = nameRow  || [];
       const pr = posRow   || [];
       const hr = hoursRow || [];
@@ -208,8 +231,17 @@ function parseSheet(rows) {
         }
       }
 
-      if (dayEmployees.length > 0 || totalTipsPool > 0) {
-        dailyBlocks.push({ date: dateStr, dayName, totalTipsPool, employees: dayEmployees });
+      // Use parsed pool total, or fall back to summing employee totals
+      const pool = totalTipsPool > 0
+        ? totalTipsPool
+        : dayEmployees.reduce((s, e) => s + e.totalTips, 0);
+
+      if (dayEmployees.length > 0 || pool > 0) {
+        dailyBlocks.push({
+          date: dateStr, dayName,
+          totalTipsPool: pool,
+          employees: dayEmployees,
+        });
       }
 
       i = blockEnd;
@@ -224,7 +256,10 @@ function parseSheet(rows) {
 
 function toNum(val) {
   if (val === null || val === undefined || val === "") return 0;
-  const n = parseFloat(String(val).replace(/[$,\/a-zA-Z\s]/g, ""));
+  const s = String(val);
+  // Values containing "/" are rates (e.g. "$0.28/hr") — not dollar totals
+  if (s.includes("/")) return 0;
+  const n = parseFloat(s.replace(/[$,\s]/g, ""));
   return isNaN(n) ? 0 : n;
 }
 
