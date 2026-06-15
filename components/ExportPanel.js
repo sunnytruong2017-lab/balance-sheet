@@ -1,28 +1,6 @@
 import { useState } from "react";
-import { format, subDays, subMonths, startOfMonth, endOfMonth, startOfWeek, endOfWeek } from "date-fns";
+import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, subDays, subMonths } from "date-fns";
 import { useIsMobile } from "../lib/useIsMobile";
-
-// ── CSV helpers ────────────────────────────────────────────
-
-function toCSV(rows, headers) {
-  const escape = (v) => {
-    const s = String(v ?? "");
-    return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  const lines = [headers.map(escape).join(",")];
-  rows.forEach((row) => lines.push(row.map(escape).join(",")));
-  return lines.join("\n");
-}
-
-function downloadCSV(filename, csv) {
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href     = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 const PRESET_RANGES = [
   { id: "today",      label: "Today" },
@@ -46,180 +24,82 @@ function getPresetDates(preset) {
   return null;
 }
 
-// ── Export sections config ─────────────────────────────────
-
 const SECTIONS = [
   {
-    id:       "income",
-    label:    "Income",
-    desc:     "Cash revenue, card revenue, tips, tax collected",
-    color:    "var(--accent)",
-    icon:     "↑",
-    fetch:    (start, end) => fetch(`/api/income?startDate=${start}&endDate=${end}`).then((r) => r.json()),
-    headers:  ["Date", "Description", "Cash Revenue", "Card Revenue", "Tip (Cash)", "Tip (Card)", "Tax", "Total", "Notes"],
-    toRow:    (e) => {
-      const total = (e.cashRevenue||0) + (e.cardRevenue||0) + (e.tipCash||0) + (e.tipCard||0);
-      return [e.date, e.description, e.cashRevenue||0, e.cardRevenue||0, e.tipCash||0, e.tipCard||0, e.tax||0, total.toFixed(2), e.notes||""];
-    },
-    filename: (start, end) => `income_${start}_${end}.csv`,
+    id:    "income",
+    label: "Income",
+    desc:  "Cash revenue, card revenue, tips, tax collected",
+    color: "var(--accent)",
+    icon:  "↑",
+    usesDateFilter: true,
   },
   {
-    id:       "expenses_daily",
-    label:    "Daily Expenses",
-    desc:     "Supplies, groceries, and other daily costs",
-    color:    "var(--red)",
-    icon:     "↓",
-    fetch:    (start, end) => fetch(`/api/expenses?startDate=${start}&endDate=${end}&frequency=Daily`).then((r) => r.json()),
-    headers:  ["Date", "Description", "Category", "Amount", "Notes"],
-    toRow:    (e) => [e.date, e.description, e.category, e.amount||0, e.notes||""],
-    filename: (start, end) => `expenses_daily_${start}_${end}.csv`,
+    id:    "expenses_daily",
+    label: "Daily Expenses",
+    desc:  "Supplies, groceries, and other daily costs",
+    color: "var(--red)",
+    icon:  "↓",
+    usesDateFilter: true,
   },
   {
-    id:       "expenses_biweekly",
-    label:    "Biweekly Expenses",
-    desc:     "Employee pay, tips",
-    color:    "var(--red)",
-    icon:     "↓",
-    fetch:    (start, end) => fetch(`/api/expenses?startDate=${start}&endDate=${end}&frequency=Biweekly`).then((r) => r.json()),
-    headers:  ["Date", "Description", "Category", "Amount", "Notes"],
-    toRow:    (e) => [e.date, e.description, e.category, e.amount||0, e.notes||""],
-    filename: (start, end) => `expenses_biweekly_${start}_${end}.csv`,
+    id:    "expenses_biweekly",
+    label: "Biweekly Expenses",
+    desc:  "Employee pay, tips",
+    color: "var(--red)",
+    icon:  "↓",
+    usesDateFilter: true,
   },
   {
-    id:       "expenses_monthly",
-    label:    "Monthly Expenses",
-    desc:     "Rent, utilities, taxes",
-    color:    "var(--red)",
-    icon:     "↓",
-    fetch:    (start, end) => fetch(`/api/expenses?startDate=${start}&endDate=${end}&frequency=Monthly`).then((r) => r.json()),
-    headers:  ["Date", "Description", "Category", "Amount", "Notes"],
-    toRow:    (e) => [e.date, e.description, e.category, e.amount||0, e.notes||""],
-    filename: (start, end) => `expenses_monthly_${start}_${end}.csv`,
+    id:    "expenses_monthly",
+    label: "Monthly Expenses",
+    desc:  "Rent, utilities, taxes",
+    color: "var(--red)",
+    icon:  "↓",
+    usesDateFilter: true,
   },
   {
-    id:       "expenses_startup",
-    label:    "Startup Costs",
-    desc:     "Initial capital expenses",
-    color:    "var(--blue)",
-    icon:     "★",
-    fetch:    (_s, _e) => fetch(`/api/expenses?startDate=2000-01-01&endDate=${format(new Date(), "yyyy-MM-dd")}&frequency=Startup`).then((r) => r.json()),
-    headers:  ["Date", "Description", "Category", "Amount", "Notes"],
-    toRow:    (e) => [e.date, e.description, e.category, e.amount||0, e.notes||""],
-    filename: () => `expenses_startup.csv`,
+    id:    "expenses_startup",
+    label: "Startup Costs",
+    desc:  "Initial capital expenses",
+    color: "var(--blue)",
+    icon:  "★",
+    usesDateFilter: false,
   },
   {
-    id:       "all_expenses",
-    label:    "All Expenses",
-    desc:     "Every expense entry across all frequencies",
-    color:    "var(--red)",
-    icon:     "↓",
-    fetch:    (start, end) => fetch(`/api/expenses?startDate=${start}&endDate=${end}`).then((r) => r.json()),
-    headers:  ["Date", "Description", "Category", "Frequency", "Amount", "Notes"],
-    toRow:    (e) => [e.date, e.description, e.category, e.frequency, e.amount||0, e.notes||""],
-    filename: (start, end) => `expenses_all_${start}_${end}.csv`,
+    id:    "all_expenses",
+    label: "All Expenses",
+    desc:  "Every expense entry across all frequencies",
+    color: "var(--red)",
+    icon:  "↓",
+    usesDateFilter: true,
   },
   {
-    id:       "payroll_tips",
-    label:    "Tip Payouts",
-    desc:     "Tip payout status per employee per week",
-    color:    "var(--yellow)",
-    icon:     "⚡",
-    // Fetch sheets data + existing payout records, merge so ALL employees
-    // appear regardless of whether they've been marked paid yet
-    fetch: async () => {
-      const [sheetsRes, payoutsRes] = await Promise.all([
-        fetch("/api/sheets"),
-        fetch("/api/tip-payouts"),
-      ]);
-      const sheets  = sheetsRes.ok  ? await sheetsRes.json()  : {};
-      const payouts = payoutsRes.ok ? await payoutsRes.json() : [];
-
-      // Build lookup: "weekKey::employee" -> payout record
-      const payoutMap = {};
-      payouts.forEach((p) => { payoutMap[`${p.weekKey}::${p.employee}`] = p; });
-
-      const rows = [];
-
-      // Helper to add rows from a sheet (current or past)
-      function addFromSheet(sheetData, scope) {
-        if (!sheetData || !sheetData.employees) return;
-        const weekKey = `${scope}:${sheetData.weekLabel || scope}`;
-        sheetData.employees.forEach((emp) => {
-          const key    = `${weekKey}::${emp.name}`;
-          const record = payoutMap[key];
-          rows.push({
-            employee: emp.name,
-            weekKey,
-            amount:   record?.amount ?? emp.weeklyTips ?? 0,
-            tips:     emp.weeklyTips ?? 0,
-            paid:     record?.paid ?? false,
-          });
-          delete payoutMap[key]; // mark as handled
-        });
-
-        // Daily breakdown rows
-        (sheetData.dailyBlocks || []).forEach((day) => {
-          const dayKey = `daily:${day.date}:${day.dayName}`;
-          day.employees.forEach((emp) => {
-            if (!emp.totalTips) return;
-            const key    = `${dayKey}::${emp.name}`;
-            const record = payoutMap[key];
-            rows.push({
-              employee: emp.name,
-              weekKey:  dayKey,
-              amount:   record?.amount ?? emp.totalTips ?? 0,
-              tips:     emp.totalTips ?? 0,
-              paid:     record?.paid ?? false,
-            });
-            delete payoutMap[key];
-          });
-        });
-      }
-
-      addFromSheet(sheets.current, "current");
-      addFromSheet(sheets.past,    "past");
-
-      // Add any remaining payout records not matched to sheet data
-      Object.values(payoutMap).forEach((p) => rows.push({
-        employee: p.employee,
-        weekKey:  p.weekKey,
-        amount:   p.amount || 0,
-        tips:     p.amount || 0,
-        paid:     p.paid,
-      }));
-
-      return rows;
-    },
-    headers:  ["Employee", "Week / Day", "Tips Amount", "Paid"],
-    toRow:    (e) => [e.employee, e.weekKey, (e.tips || e.amount || 0), e.paid ? "Yes" : "No"],
-    filename: () => `tip_payouts.csv`,
-    noDateFilter: true,
+    id:    "payroll_tips",
+    label: "Tip Payouts",
+    desc:  "All employees with tip amounts and payout status",
+    color: "var(--yellow)",
+    icon:  "⚡",
+    usesDateFilter: true,
   },
   {
-    id:       "wages",
-    label:    "Wage Rates",
-    desc:     "Current hourly rates per employee",
-    color:    "var(--blue)",
-    icon:     "👤",
-    fetch:    () => fetch("/api/wages").then((r) => r.json()),
-    headers:  ["Employee", "Hourly Rate (USD)"],
-    toRow:    (e) => [e.employee, e.hourlyRate||0],
-    filename: () => `wage_rates.csv`,
-    noDateFilter: true,
+    id:    "wages",
+    label: "Wage Rates",
+    desc:  "Current hourly rates per employee",
+    color: "var(--blue)",
+    icon:  "👤",
+    usesDateFilter: false,
   },
 ];
 
-// ── Component ──────────────────────────────────────────────
-
 export default function ExportPanel() {
   const isMobile = useIsMobile();
-  const [selected, setSelected]   = useState(new Set());
-  const [preset, setPreset]       = useState("this_month");
+  const [selected, setSelected]       = useState(new Set());
+  const [preset, setPreset]           = useState("this_month");
   const [customStart, setCustomStart] = useState(format(startOfMonth(new Date()), "yyyy-MM-dd"));
   const [customEnd, setCustomEnd]     = useState(format(new Date(), "yyyy-MM-dd"));
-  const [exporting, setExporting] = useState(false);
-  const [lastExport, setLastExport] = useState(null);
-  const [error, setError]         = useState("");
+  const [exporting, setExporting]     = useState(false);
+  const [lastExport, setLastExport]   = useState(null);
+  const [error, setError]             = useState("");
 
   const presetDates = preset !== "custom" ? getPresetDates(preset) : null;
   const start = presetDates ? presetDates.start : customStart;
@@ -233,35 +113,37 @@ export default function ExportPanel() {
     });
   }
 
-  function selectAll()   { setSelected(new Set(SECTIONS.map((s) => s.id))); }
-  function selectNone()  { setSelected(new Set()); }
+  function selectAll()  { setSelected(new Set(SECTIONS.map((s) => s.id))); }
+  function selectNone() { setSelected(new Set()); }
 
   async function handleExport() {
     if (selected.size === 0) { setError("Select at least one section to export."); return; }
     setError("");
     setExporting(true);
     try {
-      const toExport = SECTIONS.filter((s) => selected.has(s.id));
-      let exported = 0;
+      const res = await fetch("/api/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sections: [...selected], startDate: start, endDate: end }),
+      });
 
-      for (const section of toExport) {
-        const s = section.noDateFilter ? "2000-01-01" : start;
-        const e = section.noDateFilter ? format(new Date(), "yyyy-MM-dd") : end;
-        const data = await section.fetch(s, e);
-        if (!Array.isArray(data)) continue;
-        // For tip payouts: export even if no records yet (header-only is valid)
-        if (data.length === 0 && section.id !== "payroll_tips") continue;
-        const rows = data.map(section.toRow);
-        const csv  = toCSV(rows, section.headers);
-        downloadCSV(section.filename(s, e), csv);
-        exported++;
-        // Small delay between downloads so browser doesn't block them
-        await new Promise((r) => setTimeout(r, 300));
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Export failed");
       }
 
-      setLastExport({ count: exported, time: new Date().toLocaleTimeString() });
+      const blob     = await res.blob();
+      const url      = URL.createObjectURL(blob);
+      const a        = document.createElement("a");
+      const date     = format(new Date(), "yyyy-MM-dd");
+      a.href         = url;
+      a.download     = `ledger_export_${date}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setLastExport({ time: new Date().toLocaleTimeString(), sheets: selected.size });
     } catch (err) {
-      setError("Export failed: " + err.message);
+      setError(err.message || "Export failed");
     } finally {
       setExporting(false);
     }
@@ -273,12 +155,13 @@ export default function ExportPanel() {
       {/* Header */}
       <div>
         <h2 style={{ fontSize: isMobile ? 14 : 15, fontWeight: 600, marginBottom: 4 }}>Export Data</h2>
-        <p style={{ fontSize: 12, color: "var(--text-muted)" }}>Select what to export and choose a date range. Each section downloads as a separate CSV file.</p>
+        <p style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          Select sections and a date range. Everything exports as a single formatted <strong>.xlsx</strong> file with one sheet per section.
+        </p>
       </div>
 
       {/* Date range */}
       <Section title="Date Range">
-        {/* Preset pills */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: preset === "custom" ? 12 : 0 }}>
           {PRESET_RANGES.map((r) => (
             <button key={r.id} onClick={() => setPreset(r.id)} style={{
@@ -291,6 +174,7 @@ export default function ExportPanel() {
             }}>{r.label}</button>
           ))}
         </div>
+
         {preset === "custom" && (
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 4 }}>
             <label style={{ fontSize: 11, color: "var(--text-dim)" }}>From</label>
@@ -356,14 +240,18 @@ export default function ExportPanel() {
 
                 {/* Label + desc */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: "var(--text)" }}>{section.label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 500 }}>{section.label}</div>
                   <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 1 }}>{section.desc}</div>
                 </div>
 
-                {/* No date filter badge */}
-                {section.noDateFilter && (
-                  <span style={{ fontSize: 10, color: "var(--text-dim)", background: "var(--surface)", border: "1px solid var(--border)", padding: "2px 7px", borderRadius: 4, whiteSpace: "nowrap", flexShrink: 0 }}>All time</span>
-                )}
+                {/* Date filter badge */}
+                <span style={{
+                  fontSize: 10, color: "var(--text-dim)",
+                  background: "var(--surface)", border: "1px solid var(--border)",
+                  padding: "2px 7px", borderRadius: 4, whiteSpace: "nowrap", flexShrink: 0,
+                }}>
+                  {section.usesDateFilter ? "Uses date range" : "All time"}
+                </span>
               </button>
             );
           })}
@@ -381,7 +269,7 @@ export default function ExportPanel() {
       {lastExport && (
         <div style={{ padding: "10px 14px", background: "var(--accent-dim)", border: "1px solid var(--accent-glow)", borderRadius: 8, fontSize: 13, color: "var(--accent)", display: "flex", alignItems: "center", gap: 8 }}>
           <span>✓</span>
-          <span>Exported {lastExport.count} file{lastExport.count !== 1 ? "s" : ""} at {lastExport.time}</span>
+          <span>Exported {lastExport.sheets} sheet{lastExport.sheets !== 1 ? "s" : ""} at {lastExport.time} — check your downloads for <strong>ledger_export.xlsx</strong></span>
         </div>
       )}
 
@@ -391,7 +279,8 @@ export default function ExportPanel() {
           onClick={handleExport}
           disabled={exporting || selected.size === 0}
           style={{
-            padding: "10px 28px", borderRadius: 9, fontSize: 14, fontWeight: 600, cursor: selected.size === 0 ? "not-allowed" : "pointer",
+            padding: "10px 28px", borderRadius: 9, fontSize: 14, fontWeight: 600,
+            cursor: selected.size === 0 ? "not-allowed" : "pointer",
             background: selected.size === 0 ? "var(--surface2)" : "var(--accent)",
             color: selected.size === 0 ? "var(--text-dim)" : "#000",
             border: "none", opacity: exporting ? 0.7 : 1,
@@ -399,19 +288,11 @@ export default function ExportPanel() {
             display: "flex", alignItems: "center", gap: 8,
           }}
         >
-          {exporting ? (
-            <>
-              <Spinner /> Exporting…
-            </>
-          ) : (
-            <>
-              ↓ Export {selected.size > 0 ? `(${selected.size})` : ""}
-            </>
-          )}
+          {exporting ? <><Spinner /> Generating…</> : <>↓ Export {selected.size > 0 ? `(${selected.size} sheets)` : ""}</>}
         </button>
         {selected.size > 0 && !exporting && (
           <span style={{ fontSize: 12, color: "var(--text-dim)" }}>
-            {selected.size} CSV file{selected.size !== 1 ? "s" : ""} will download
+            Single .xlsx file · {start} to {end}
           </span>
         )}
       </div>
@@ -433,10 +314,14 @@ function Section({ title, action, children }) {
 
 function TextBtn({ onClick, children }) {
   return (
-    <button onClick={onClick} style={{ fontSize: 12, color: "var(--accent)", background: "none", border: "none", cursor: "pointer", padding: 0 }}>{children}</button>
+    <button onClick={onClick} style={{ fontSize: 12, color: "var(--accent)", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+      {children}
+    </button>
   );
 }
 
 function Spinner() {
-  return <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid rgba(0,0,0,0.2)", borderTopColor: "#000", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />;
+  return (
+    <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid rgba(0,0,0,0.2)", borderTopColor: "#000", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
+  );
 }
