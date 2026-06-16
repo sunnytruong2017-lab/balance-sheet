@@ -1,14 +1,16 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
 
 const MANAGER_PASSWORD = "9999";
 const SESSION_KEY      = "ledger_manager_auth";
 
 export function useManagerAuth() {
-  const [authed, setAuthed] = useState(false);
-
-  useEffect(() => {
-    setAuthed(sessionStorage.getItem(SESSION_KEY) === "true");
-  }, []);
+  // Initialize synchronously from sessionStorage so there is no render
+  // where authed=false despite being logged in (which caused the gate to
+  // flash open even when already authenticated)
+  const [authed, setAuthed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return sessionStorage.getItem(SESSION_KEY) === "true";
+  });
 
   function login(password) {
     if (password === MANAGER_PASSWORD) {
@@ -101,7 +103,7 @@ export default function ManagerGate({ onSuccess, onCancel, tabName }) {
           </div>
           <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Manager Access</div>
           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            <strong style={{ color: "var(--text)" }}>{tabName}</strong> is restricted to managers.
+            {tabName === "__login__" ? "Sign in to access manager features." : <><strong style={{ color: "var(--text)" }}>{tabName}</strong> is restricted to managers.</>}
           </div>
         </div>
 
