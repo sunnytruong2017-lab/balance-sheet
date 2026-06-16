@@ -8,8 +8,9 @@ export default async function handler(req, res) {
     }
 
     if (req.method === "POST") {
-      const { employee, hourlyRate } = req.body;
-      const entry = await upsertWage(employee, hourlyRate);
+      const { employee, role, hourlyRate } = req.body;
+      if (!employee || !role) return res.status(400).json({ error: "employee and role required" });
+      const entry = await upsertWage(employee, role, hourlyRate);
       return res.status(200).json(entry);
     }
 
