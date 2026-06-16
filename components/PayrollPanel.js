@@ -199,11 +199,12 @@ export default function PayrollPanel() {
     }).filter(Boolean);
   }
 
-  // Build payroll for a single sheet (for the tips tabs)
-  function buildWeeklyPayroll(sheetData) {
+  // Build payroll for the tips tabs — uses the correct daily blocks per sheet
+  function buildWeeklyPayroll(sheetData, dailyBlocksOverride) {
+    const blocks = dailyBlocksOverride || sheetData.dailyBlocks;
     return sheetData.employees.map((emp) => {
       const rate  = savedWages[emp.name] || 0;
-      const hours = sheetData.dailyBlocks.reduce((sum, day) => {
+      const hours = blocks.reduce((sum, day) => {
         const de = day.employees.find((e) => e.name === emp.name);
         return sum + (de?.hours || 0);
       }, 0);
@@ -213,8 +214,19 @@ export default function PayrollPanel() {
 
   const biweeklyPayroll  = buildBiweeklyPayroll();
   const currentPayroll   = buildWeeklyPayroll(current);
-  const pastPayroll      = buildWeeklyPayroll(past);
+  // Past uses only the most recent week's daily blocks to avoid summing all history
+  const pastPayroll      = buildWeeklyPayroll(past, pastMostRecentBlocks);
   const allWeeks         = sheetsData?.past?.allWeeks || [];
+
+  // past.dailyBlocks contains ALL historical days. To get just the most recent
+  // week's data for "Last Week's Tips", filter to the 7 most recent dates only.
+  const pastMostRecentBlocks = (() => {
+    const blocks = past.dailyBlocks;
+    if (!blocks.length) return [];
+    // Sort by date desc, take the first 7 unique dates
+    const uniqueDates = [...new Set(blocks.map((b) => b.date))].sort().reverse().slice(0, 7);
+    return blocks.filter((b) => uniqueDates.includes(b.date));
+  })();
 
   // Build a map of dual-role employees: { name: Set(['FOH','BOH']) }
   // Detected from daily blocks where roleHours contains multiple roles
@@ -487,8 +499,8 @@ export default function PayrollPanel() {
                   const wk     = makeWeekKey("past", past.weekLabel || "past");
                   const payout = getPayout(wk, emp.name);
                   const sk     = `${wk}::${emp.name}`;
-                  const ccTips   = past.dailyBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.ccTips   || 0), 0);
-                  const cashTips = past.dailyBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.cashTips || 0), 0);
+                  const ccTips   = pastMostRecentBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.ccTips   || 0), 0);
+                  const cashTips = pastMostRecentBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.cashTips || 0), 0);
                   return (
                     <TableRow key={emp.name} cols={7} last={i === pastPayroll.length - 1} cells={[
                       <Name>{emp.name}</Name>,
@@ -505,8 +517,8 @@ export default function PayrollPanel() {
               )}
               {pastPayroll.length > 0 && (
                 <TotalFooter items={[
-                  { label: "Total CC Tips",   value: fmt(pastPayroll.reduce((s, e) => { const cc = past.dailyBlocks.reduce((a, d) => a + (d.employees.find((x) => x.name === e.name)?.ccTips || 0), 0); return s + cc; }, 0)), color: "var(--text-muted)" },
-                  { label: "Total Cash Tips", value: fmt(pastPayroll.reduce((s, e) => { const cash = past.dailyBlocks.reduce((a, d) => a + (d.employees.find((x) => x.name === e.name)?.cashTips || 0), 0); return s + cash; }, 0)), color: "var(--text-muted)" },
+                  { label: "Total CC Tips",   value: fmt(pastPayroll.reduce((s, e) => { const cc = pastMostRecentBlocks.reduce((a, d) => a + (d.employees.find((x) => x.name === e.name)?.ccTips || 0), 0); return s + cc; }, 0)), color: "var(--text-muted)" },
+                  { label: "Total Cash Tips", value: fmt(pastPayroll.reduce((s, e) => { const cash = pastMostRecentBlocks.reduce((a, d) => a + (d.employees.find((x) => x.name === e.name)?.cashTips || 0), 0); return s + cash; }, 0)), color: "var(--text-muted)" },
                   { label: "Total Weekly Tips", value: fmt(totalPastTips), color: "var(--yellow)", bold: true },
                 ]} />
               )}
