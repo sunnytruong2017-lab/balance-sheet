@@ -113,3 +113,15 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+
+/* Manager gate shake animation */
+@keyframes managerShake {
+  0%,100% { transform: translateX(0); }
+  20%      { transform: translateX(-8px); }
+  40%      { transform: translateX(8px); }
+  60%      { transform: translateX(-5px); }
+  80%      { transform: translateX(5px); }
+}
+.manager-gate-shake {
+  animation: managerShake 0.4s ease !important;
+}
