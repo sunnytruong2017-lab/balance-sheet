@@ -681,7 +681,7 @@ function StatCard({ label, value, color, hint }) {
       </div>
       <div style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 700, color, letterSpacing: "-1px" }}>{value}</div>
       {showHint && hint && (
-        <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 0, right: 0, background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5, zIndex: 10, boxShadow: "var(--shadow)" }}>
+        <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0, background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 12px", fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5, zIndex: 10, boxShadow: "var(--shadow)" }}>
           {hint}
         </div>
       )}
