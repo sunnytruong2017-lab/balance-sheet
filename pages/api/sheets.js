@@ -269,14 +269,48 @@ function parseSheet(rows) {
       const sr = cashRow_  || [];
       const tr = totalRow_ || [];
 
-      const dayEmployees = empCols.map(({ name, cols }) => ({
-        name,
-        position:  pr[cols[0]] || "",
-        hours:     sumCols(hr, cols),
-        ccTips:    sumCols(cr, cols),
-        cashTips:  sumCols(sr, cols),
-        totalTips: sumCols(tr, cols),
-      })).filter((e) => e.hours > 0 || e.totalTips > 0);
+      const dayEmployees = empCols.map(({ name, cols }) => {
+        // For merged employees (e.g. Sunny spans FOH col + BOH col),
+        // each column may have a different position. Split into per-role hours.
+        const positions = cols.map((col) => pr[col] || "");
+        const uniqueRoles = [...new Set(positions.filter(Boolean))];
+
+        if (uniqueRoles.length > 1) {
+          // Dual-role: sum hours/tips per role separately
+          const roleHours    = {};
+          const roleCcTips   = {};
+          const roleCashTips = {};
+          const roleTips     = {};
+          cols.forEach((col, idx) => {
+            const role = positions[idx] || "FOH";
+            roleHours[role]    = (roleHours[role]    || 0) + toNum(hr[col]);
+            roleCcTips[role]   = (roleCcTips[role]   || 0) + toNum(cr[col]);
+            roleCashTips[role] = (roleCashTips[role] || 0) + toNum(sr[col]);
+            roleTips[role]     = (roleTips[role]     || 0) + toNum(tr[col]);
+          });
+          // Return the role with the most hours as primary, expose roleHours for wage calc
+          const primaryRole = Object.entries(roleHours).sort((a,b) => b[1]-a[1])[0]?.[0] || positions[0];
+          return {
+            name,
+            position:  primaryRole,
+            roleHours,   // { FOH: x, BOH: y } — used by biweekly wage calculator
+            hours:     sumCols(hr, cols),
+            ccTips:    sumCols(cr, cols),
+            cashTips:  sumCols(sr, cols),
+            totalTips: sumCols(tr, cols),
+          };
+        }
+
+        // Single role employee
+        return {
+          name,
+          position:  positions[0] || "",
+          hours:     sumCols(hr, cols),
+          ccTips:    sumCols(cr, cols),
+          cashTips:  sumCols(sr, cols),
+          totalTips: sumCols(tr, cols),
+        };
+      }).filter((e) => e.hours > 0 || e.totalTips > 0);
 
       const pool = totalTipsPool > 0
         ? totalTipsPool
