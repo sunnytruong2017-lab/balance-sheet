@@ -443,6 +443,8 @@ export default function PayrollPanel() {
               )}
               {currentPayroll.length > 0 && (
                 <TotalFooter items={[
+                  { label: "Total CC Tips",   value: fmt(currentPayroll.reduce((s, e) => { const cc = current.dailyBlocks.reduce((a, d) => a + (d.employees.find((x) => x.name === e.name)?.ccTips || 0), 0); return s + cc; }, 0)), color: "var(--text-muted)" },
+                  { label: "Total Cash Tips", value: fmt(currentPayroll.reduce((s, e) => { const cash = current.dailyBlocks.reduce((a, d) => a + (d.employees.find((x) => x.name === e.name)?.cashTips || 0), 0); return s + cash; }, 0)), color: "var(--text-muted)" },
                   { label: "Total Weekly Tips", value: fmt(totalCurrentTips), color: "var(--yellow)", bold: true },
                 ]} />
               )}
@@ -503,6 +505,8 @@ export default function PayrollPanel() {
               )}
               {pastPayroll.length > 0 && (
                 <TotalFooter items={[
+                  { label: "Total CC Tips",   value: fmt(pastPayroll.reduce((s, e) => { const cc = past.dailyBlocks.reduce((a, d) => a + (d.employees.find((x) => x.name === e.name)?.ccTips || 0), 0); return s + cc; }, 0)), color: "var(--text-muted)" },
+                  { label: "Total Cash Tips", value: fmt(pastPayroll.reduce((s, e) => { const cash = past.dailyBlocks.reduce((a, d) => a + (d.employees.find((x) => x.name === e.name)?.cashTips || 0), 0); return s + cash; }, 0)), color: "var(--text-muted)" },
                   { label: "Total Weekly Tips", value: fmt(totalPastTips), color: "var(--yellow)", bold: true },
                 ]} />
               )}
@@ -562,6 +566,17 @@ export default function PayrollPanel() {
                       ]} />
                     );
                   })}
+                  {/* Daily totals row */}
+                  {(() => {
+                    const filtered = day.employees.filter((e) => e.hours > 0 || e.totalTips > 0);
+                    return filtered.length > 0 ? (
+                      <TotalFooter items={[
+                        { label: "Total CC Tips",   value: fmt(filtered.reduce((s, e) => s + (e.ccTips   || 0), 0)), color: "var(--text-muted)" },
+                        { label: "Total Cash Tips", value: fmt(filtered.reduce((s, e) => s + (e.cashTips || 0), 0)), color: "var(--text-muted)" },
+                        { label: "Day Total",       value: fmt(filtered.reduce((s, e) => s + (e.totalTips || 0), 0)), color: "var(--yellow)", bold: true },
+                      ]} />
+                    ) : null;
+                  })()}
                 </>
               )}
             </Panel>
@@ -630,6 +645,8 @@ export default function PayrollPanel() {
                       );
                     })}
                     <TotalFooter items={[
+                      { label: "Paid Out",   value: fmt(week.employees.filter((e) => getPayout(wk, e.name).paid).reduce((s, e) => s + e.weeklyTips, 0)), color: "var(--green)" },
+                      { label: "Unpaid",     value: fmt(week.employees.filter((e) => !getPayout(wk, e.name).paid).reduce((s, e) => s + e.weeklyTips, 0)), color: "var(--text-muted)" },
                       { label: "Week Total", value: fmt(weekTotal), color: "var(--yellow)", bold: true },
                     ]} />
                   </>
