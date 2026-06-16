@@ -82,7 +82,20 @@ function getEmployees(nameRow) {
   const employees = [];
   let current = null;
 
-  for (let i = 2; i < nameRow.length; i++) {
+  // Detect if row is shifted (API truncated leading empty cols).
+  // If col 0 (A) is empty and col 1 (B) looks like a name, start from col 1.
+  // Otherwise start from col 2 (C) as normal.
+  const a = nameRow[0];
+  const b = nameRow[1];
+  const aEmpty = a === "" || a === null || a === undefined;
+  const bIsName = b && typeof b === "string" && b.trim().length > 0
+                  && b.trim().length <= 40 && !b.includes(":")
+                  && !(b.trim() === b.trim().toUpperCase() && b.trim().length > 6)
+                  && !["Position","Hours Worked","Total Hours Worked",
+                       "Weekly Tips","Tip Payouts","Payment Received"].includes(b.trim());
+  const startCol = (aEmpty && bIsName) ? 1 : 2;
+
+  for (let i = startCol; i < nameRow.length; i++) {
     const val    = nameRow[i];
     const isName = val && typeof val === "string" && val.trim().length > 0
                    && val.trim().length <= 40
@@ -94,26 +107,46 @@ function getEmployees(nameRow) {
       current = { name: val.trim(), cols: [i] };
       employees.push(current);
     } else if (isEmpty && current && current.cols.length === 1) {
-      current.cols.push(i); // merge second column
+      current.cols.push(i); // merge second column (e.g. Sunny/My dual role)
     } else {
-      current = null;       // spacer — reset
+      current = null;       // spacer between employees — reset
     }
   }
   return employees;
 }
 
 
-// Names row: col B is empty/"", col C is a short employee name string
-// Only used inside block scanners, not at the top level
+// Names row: col B is empty/"", col C is a short employee name string.
+// The Sheets API sometimes truncates leading empty cells, so also check
+// if col A is empty and col B looks like a name (row shifted left by 1).
 function isNamesRow(row) {
+  const a = row[0];
   const b = row[1];
   const c = row[2];
-  return (b === "" || b === null || b === undefined) &&
-         typeof c === "string" &&
-         c.trim().length > 0 &&
-         c.trim().length <= 40 &&
-         !c.includes(":") &&
-         !(c.trim() === c.trim().toUpperCase() && c.trim().length > 6);
+
+  function looksLikeName(v) {
+    if (typeof v !== "string") return false;
+    const t = v.trim();
+    return t.length > 0 && t.length <= 40 &&
+           !t.includes(":") &&
+           !(t === t.toUpperCase() && t.length > 6);
+  }
+
+  // Standard: col B empty, col C is an employee name
+  if ((b === "" || b === null || b === undefined) && looksLikeName(c)) {
+    return true;
+  }
+
+  // Shifted: col A empty, col B looks like an employee name
+  // (happens when Sheets API truncates the leading empty col A)
+  if ((a === "" || a === null || a === undefined) && looksLikeName(b) &&
+      // Exclude rows where col B is a known label
+      !["Position", "Hours Worked", "Total Hours Worked",
+        "Weekly Tips", "Tip Payouts", "Payment Received"].includes(b?.trim())) {
+    return true;
+  }
+
+  return false;
 }
 
 function sumCols(row, cols) {
