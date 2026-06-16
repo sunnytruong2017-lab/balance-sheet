@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { format, startOfMonth, endOfMonth, getDaysInMonth, parseISO } from "date-fns";
 import { useIsMobile } from "../lib/useIsMobile";
 
 const fmt = (n) =>
@@ -6,6 +7,31 @@ const fmt = (n) =>
 
 function makeWeekKey(scope, identifier) {
   return `${scope}:${identifier}`;
+}
+
+// Returns the two biweekly periods for a given month
+function getBiweeklyPeriods(refDate) {
+  const d        = refDate || new Date();
+  const year     = d.getFullYear();
+  const month    = d.getMonth();
+  const lastDay  = getDaysInMonth(d);
+  return [
+    {
+      label: `${format(d, "MMM")} 1–15`,
+      start: format(new Date(year, month, 1),       "yyyy-MM-dd"),
+      end:   format(new Date(year, month, 15),      "yyyy-MM-dd"),
+    },
+    {
+      label: `${format(d, "MMM")} 16–${lastDay}`,
+      start: format(new Date(year, month, 16),      "yyyy-MM-dd"),
+      end:   format(new Date(year, month, lastDay), "yyyy-MM-dd"),
+    },
+  ];
+}
+
+// Detect which period today falls in and return its index (0 or 1)
+function currentPeriodIndex() {
+  return new Date().getDate() <= 15 ? 0 : 1;
 }
 
 export default function PayrollPanel() {
@@ -19,7 +45,13 @@ export default function PayrollPanel() {
   const [saving, setSaving]             = useState({});
   const [payoutSaving, setPayoutSaving] = useState({});
   const [error, setError]               = useState("");
-  const [activeView, setActiveView]     = useState("monthly");
+  const [activeView, setActiveView]     = useState("wages_biweekly");
+
+  // Biweekly period selector state
+  const [periodMonth, setPeriodMonth]   = useState(new Date());
+  const [periodIdx, setPeriodIdx]       = useState(currentPeriodIndex());
+  const periods = getBiweeklyPeriods(periodMonth);
+  const selectedPeriod = periods[periodIdx];
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -101,14 +133,40 @@ export default function PayrollPanel() {
   const current = sheetsData?.current || { employees: [], weeklyTipsTotal: 0, dailyBlocks: [], weeklyTips: {}, weekLabel: null };
   const past    = sheetsData?.past    || { employees: [], weeklyTipsTotal: 0, dailyBlocks: [], weeklyTips: {}, weekLabel: null };
 
-  // All unique employee names across both sheets
   const allEmployeeNames = [...new Set([
     ...current.employees.map((e) => e.name),
     ...past.employees.map((e) => e.name),
   ])].filter(Boolean).sort();
 
-  // Build payroll for a single sheet (hours summed from daily blocks for that sheet)
-  function buildPayroll(sheetData) {
+  // Sum hours from all daily blocks across both sheets that fall within the selected period
+  function buildBiweeklyPayroll() {
+    const { start, end } = selectedPeriod;
+    return allEmployeeNames.map((name) => {
+      const rate = savedWages[name] || 0;
+      const pos  = current.employees.find((e) => e.name === name)?.position
+                || past.employees.find((e) => e.name === name)?.position || "";
+
+      let hours = 0;
+      const daysWorked = [];
+
+      // Collect from both sheets' daily blocks, filtered by date range
+      for (const sheetData of [current, past]) {
+        for (const day of sheetData.dailyBlocks) {
+          if (day.date < start || day.date > end) continue;
+          const emp = day.employees.find((e) => e.name === name);
+          if (emp && emp.hours > 0) {
+            hours += emp.hours;
+            daysWorked.push({ date: day.date, dayName: day.dayName, hours: emp.hours });
+          }
+        }
+      }
+
+      return { name, position: pos, rate, hours, grossPay: hours * rate, daysWorked };
+    }).filter((e) => e.hours > 0);
+  }
+
+  // Build payroll for a single sheet (for the tips tabs)
+  function buildWeeklyPayroll(sheetData) {
     return sheetData.employees.map((emp) => {
       const rate  = savedWages[emp.name] || 0;
       const hours = sheetData.dailyBlocks.reduce((sum, day) => {
@@ -119,78 +177,41 @@ export default function PayrollPanel() {
     });
   }
 
-  // Monthly summary: combine current + past week hours and tips
-  function buildMonthlyPayroll() {
-    return allEmployeeNames.map((name) => {
-      const rate = savedWages[name] || 0;
-      const pos  = current.employees.find((e) => e.name === name)?.position
-                || past.employees.find((e) => e.name === name)?.position || "";
+  const biweeklyPayroll  = buildBiweeklyPayroll();
+  const currentPayroll   = buildWeeklyPayroll(current);
+  const pastPayroll      = buildWeeklyPayroll(past);
 
-      // Hours from current week daily blocks
-      const currentHours = current.dailyBlocks.reduce((sum, day) => {
-        const de = day.employees.find((e) => e.name === name);
-        return sum + (de?.hours || 0);
-      }, 0);
-      // Hours from past week daily blocks
-      const pastHours = past.dailyBlocks.reduce((sum, day) => {
-        const de = day.employees.find((e) => e.name === name);
-        return sum + (de?.hours || 0);
-      }, 0);
-
-      const totalHours = currentHours + pastHours;
-
-      // Tips from both weeks
-      const currentTips = current.employees.find((e) => e.name === name)?.weeklyTips || 0;
-      const pastTips    = past.employees.find((e) => e.name === name)?.weeklyTips    || 0;
-      const totalTips   = currentTips + pastTips;
-
-      return {
-        name, position: pos, rate,
-        currentHours, pastHours, totalHours,
-        currentTips, pastTips, totalTips,
-        grossPay: totalHours * rate,
-      };
-    }).filter((e) => e.totalHours > 0 || e.totalTips > 0);
-  }
-
-  const currentPayroll = buildPayroll(current);
-  const pastPayroll    = buildPayroll(past);
-  const monthlyPayroll = buildMonthlyPayroll();
-
-  const totalCurrentWages  = currentPayroll.reduce((s, e) => s + e.grossPay, 0);
+  const totalBiweeklyWages = biweeklyPayroll.reduce((s, e) => s + e.grossPay, 0);
   const totalCurrentTips   = current.weeklyTipsTotal || 0;
-  const totalPastWages     = pastPayroll.reduce((s, e) => s + e.grossPay, 0);
-  const totalPastTips      = past.weeklyTipsTotal || 0;
-  const totalMonthlyWages  = monthlyPayroll.reduce((s, e) => s + e.grossPay, 0);
-  const totalMonthlyTips   = monthlyPayroll.reduce((s, e) => s + e.totalTips, 0);
+  const totalPastTips      = past.weeklyTipsTotal    || 0;
 
   const subViews = [
-    { id: "monthly", label: isMobile ? "Monthly" : "Monthly Summary",    desc: "Combined hours + wages across all tracked weeks" },
-    { id: "current", label: isMobile ? "This Week" : "This Week's Tips", desc: `${current.weekLabel || "Current week"} — weekly tip totals per employee` },
-    { id: "past",    label: isMobile ? "Last Week" : "Last Week's Tips", desc: `${past.weekLabel || "Past week"} — weekly tip totals per employee` },
-    { id: "daily",   label: isMobile ? "Daily" : "Daily Tip Breakdown",  desc: "Per-day tip distribution pulled from Google Sheets" },
-    { id: "wages",   label: isMobile ? "Wages" : "Hourly Wage Settings", desc: "Set each employee's hourly rate" },
+    { id: "wages_biweekly", label: isMobile ? "Wages"     : "Biweekly Wages",    desc: "Hours × hourly rate for the selected pay period" },
+    { id: "tips_current",   label: isMobile ? "This Wk"  : "This Week's Tips",   desc: `${current.weekLabel || "Current week"} — weekly tip totals` },
+    { id: "tips_past",      label: isMobile ? "Last Wk"  : "Last Week's Tips",   desc: `${past.weekLabel || "Past week"} — weekly tip totals` },
+    { id: "tips_daily",     label: isMobile ? "Daily"    : "Daily Tip Breakdown",desc: "Per-day tip amounts pulled from Google Sheets" },
+    { id: "wage_settings",  label: isMobile ? "Settings" : "Hourly Rate Settings",desc: "Set each employee's hourly rate" },
   ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? 16 : 24 }}>
 
-      {/* Summary cards — show monthly totals at the top */}
+      {/* Summary cards */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(3, 1fr)", gap: 10 }}>
         {isMobile ? (
           <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "14px 16px" }}>
             <div style={{ fontSize: 10, color: "var(--text-dim)", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-              Monthly Totals — {past.weekLabel} + {current.weekLabel}
+              {selectedPeriod.label} Pay Period
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 0 }}>
               {[
-                { label: "Wages (est.)", value: fmt(totalMonthlyWages), color: "var(--blue)" },
-                { label: "Tips Total",  value: fmt(totalMonthlyTips),  color: "var(--yellow)" },
-                { label: "Total Pay",   value: fmt(totalMonthlyWages + totalMonthlyTips), color: "var(--accent)" },
+                { label: "Est. Wages",   value: fmt(totalBiweeklyWages), color: "var(--blue)"   },
+                { label: "Curr Tips",    value: fmt(totalCurrentTips),   color: "var(--yellow)" },
+                { label: "Last Wk Tips", value: fmt(totalPastTips),      color: "var(--yellow)" },
               ].map((item, i) => (
-                <div key={item.label} style={{ textAlign: i === 1 ? "center" : i === 2 ? "right" : "left" }}>
-                  <div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>{item.label}</div>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 15, fontWeight: 700, color: item.color }}>{item.value}</div>
+                <div key={item.label} style={{ textAlign: i === 0 ? "left" : i === 1 ? "center" : "right" }}>
+                  <div style={{ fontSize: 9, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>{item.label}</div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 700, color: item.color }}>{item.value}</div>
                 </div>
               ))}
             </div>
@@ -198,34 +219,30 @@ export default function PayrollPanel() {
         ) : (
           <>
             <StatCard
-              label={`Estimated Wages — ${past.weekLabel || ""}  +  ${current.weekLabel || ""}`}
-              value={fmt(totalMonthlyWages)}
+              label={`Biweekly Wages — ${selectedPeriod.label}`}
+              value={fmt(totalBiweeklyWages)}
               color="var(--blue)"
-              hint="Hours × hourly rate across both tracked weeks"
+              hint={`Estimated wages for the ${selectedPeriod.label} pay period. Based on hours worked × each employee's hourly rate.`}
             />
             <StatCard
-              label="Total Tips — Both Weeks"
-              value={fmt(totalMonthlyTips)}
+              label={`Tips — ${current.weekLabel || "This Week"}`}
+              value={fmt(totalCurrentTips)}
               color="var(--yellow)"
-              hint="Sum of weekly tip totals from Google Sheets"
+              hint="Weekly tip pool from Google Sheets. Tips are distributed weekly, separate from the biweekly wage cycle."
             />
             <StatCard
-              label="Estimated Monthly Payroll"
-              value={fmt(totalMonthlyWages + totalMonthlyTips)}
-              color="var(--accent)"
-              hint="Wages estimate + tips. Confirm with your actual pay period."
+              label={`Tips — ${past.weekLabel || "Last Week"}`}
+              value={fmt(totalPastTips)}
+              color="var(--yellow)"
+              hint="Last week's tip pool from Google Sheets."
             />
           </>
         )}
       </div>
 
-      {/* Disclaimer */}
-      <div style={{
-        padding: "10px 14px", borderRadius: 8, fontSize: 12,
-        background: "var(--yellow-dim)", border: "1px solid rgba(246,201,14,0.2)",
-        color: "var(--text-muted)", lineHeight: 1.6,
-      }}>
-        <strong style={{ color: "var(--yellow)" }}>Note:</strong> Wages are estimated from the two weeks currently visible in your Google Sheet (This Week + Last Week). Tips are tracked weekly. Payroll totals above are a reference — confirm with your actual pay period dates before processing payroll.
+      {/* Info banner */}
+      <div style={{ padding: "10px 14px", borderRadius: 8, fontSize: 12, background: "var(--blue-dim)", border: "1px solid rgba(96,165,250,0.2)", color: "var(--text-muted)", lineHeight: 1.6 }}>
+        <strong style={{ color: "var(--blue)" }}>Pay schedule:</strong> Wages are paid <strong>biweekly</strong> (1st–15th and 16th–end of month). Tips are tracked and paid out <strong>weekly</strong> via Google Sheets. Use the tabs below to view each separately.
       </div>
 
       {/* Sub-nav */}
@@ -234,7 +251,7 @@ export default function PayrollPanel() {
           <button key={v.id} onClick={() => setActiveView(v.id)} style={{
             flex: isMobile ? 1 : "initial",
             padding: isMobile ? "10px 4px" : "8px 14px",
-            fontSize: isMobile ? 10 : 12, textAlign: "center",
+            fontSize: isMobile ? 9 : 12, textAlign: "center",
             fontWeight: activeView === v.id ? 600 : 400,
             color: activeView === v.id ? "var(--text)" : "var(--text-muted)",
             borderBottom: `2px solid ${activeView === v.id ? "var(--accent)" : "transparent"}`,
@@ -245,62 +262,83 @@ export default function PayrollPanel() {
         ))}
       </div>
 
-      {/* ── Monthly Summary ── */}
-      {activeView === "monthly" && (
-        <Panel>
-          <PanelHeader
-            title={`Monthly Payroll Estimate — ${past.weekLabel || "Last Week"} + ${current.weekLabel || "This Week"}`}
-            hint="Aggregates hours and tips from both tracked weeks. Wages = Total Hours × Hourly Rate."
-          />
-          {isMobile ? (
-            monthlyPayroll.length === 0 ? <Empty text="No data found in Google Sheets" /> : (
-              <div>
-                {monthlyPayroll.map((emp, i) => (
-                  <MonthlyEmployeeCard key={emp.name} emp={emp} last={i === monthlyPayroll.length - 1} />
-                ))}
-                <MobileTotalFooter
-                  wages={totalMonthlyWages}
-                  tips={totalMonthlyTips}
-                  total={totalMonthlyWages + totalMonthlyTips}
-                />
-              </div>
-            )
-          ) : (
-            <>
-              <TableHeader cols={["Employee", "Position", "Last Wk Hrs", "This Wk Hrs", "Total Hrs", "Rate/hr", "Est. Wages", "Total Tips", "Est. Total Pay"]} />
-              {monthlyPayroll.length === 0 ? <Empty text="No data found in Google Sheets" /> : (
-                monthlyPayroll.map((emp, i) => (
-                  <TableRow key={emp.name} cols={9} last={i === monthlyPayroll.length - 1} cells={[
-                    <Name>{emp.name}</Name>,
-                    <Badge pos={emp.position}>{emp.position}</Badge>,
-                    <Mono muted>{emp.pastHours.toFixed(2)}</Mono>,
-                    <Mono muted>{emp.currentHours.toFixed(2)}</Mono>,
-                    <Mono>{emp.totalHours.toFixed(2)} hrs</Mono>,
-                    <Mono muted>{emp.rate ? fmt(emp.rate) : <Warn />}</Mono>,
-                    <Mono accent>{emp.rate ? fmt(emp.grossPay) : "—"}</Mono>,
-                    <Mono yellow>{fmt(emp.totalTips)}</Mono>,
-                    <Mono accent bold>{emp.rate ? fmt(emp.grossPay + emp.totalTips) : "—"}</Mono>,
+      {/* ── Biweekly Wages ── */}
+      {activeView === "wages_biweekly" && (
+        <>
+          {/* Period selector */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>Pay period:</span>
+            <div style={{ display: "flex", gap: 4, background: "var(--surface2)", borderRadius: 8, padding: 3, border: "1px solid var(--border)" }}>
+              {periods.map((p, idx) => (
+                <button key={idx} onClick={() => setPeriodIdx(idx)} style={{
+                  padding: "5px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer",
+                  fontWeight: periodIdx === idx ? 600 : 400,
+                  background: periodIdx === idx ? "var(--surface)" : "transparent",
+                  color: periodIdx === idx ? "var(--text)" : "var(--text-muted)",
+                  border: periodIdx === idx ? "1px solid var(--border)" : "1px solid transparent",
+                  transition: "all 0.15s ease",
+                }}>{p.label}</button>
+              ))}
+            </div>
+            {/* Month nav */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
+              <button onClick={() => setPeriodMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))}
+                style={{ width: 26, height: 26, borderRadius: "50%", background: "var(--surface2)", border: "1px solid var(--border)", cursor: "pointer", color: "var(--text-muted)", fontSize: 14 }}>‹</button>
+              <span style={{ fontSize: 13, fontWeight: 600, minWidth: 80, textAlign: "center" }}>{format(periodMonth, "MMM yyyy")}</span>
+              <button onClick={() => setPeriodMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))}
+                style={{ width: 26, height: 26, borderRadius: "50%", background: "var(--surface2)", border: "1px solid var(--border)", cursor: "pointer", color: "var(--text-muted)", fontSize: 14 }}>›</button>
+            </div>
+          </div>
+
+          <Panel>
+            <PanelHeader
+              title={`Biweekly Wages — ${selectedPeriod.label} (${selectedPeriod.start} to ${selectedPeriod.end})`}
+              hint="Hours worked within this pay period × each employee's hourly rate. Only days within the date range are counted."
+            />
+            {isMobile ? (
+              biweeklyPayroll.length === 0
+                ? <Empty text={`No hours logged between ${selectedPeriod.start} and ${selectedPeriod.end} in Google Sheets`} />
+                : (
+                  <div>
+                    {biweeklyPayroll.map((emp, i) => (
+                      <BiweeklyEmployeeCard key={emp.name} emp={emp} last={i === biweeklyPayroll.length - 1} />
+                    ))}
+                    <MobileTotalFooter label="Est. Biweekly Wages" value={fmt(totalBiweeklyWages)} color="var(--blue)" />
+                  </div>
+                )
+            ) : (
+              <>
+                <TableHeader cols={["Employee", "Position", "Days Worked", "Total Hours", "Rate / hr", "Estimated Wages"]} />
+                {biweeklyPayroll.length === 0
+                  ? <Empty text={`No hours logged between ${selectedPeriod.start} and ${selectedPeriod.end} in Google Sheets`} />
+                  : biweeklyPayroll.map((emp, i) => (
+                    <TableRow key={emp.name} cols={6} last={i === biweeklyPayroll.length - 1} cells={[
+                      <Name>{emp.name}</Name>,
+                      <Badge pos={emp.position}>{emp.position}</Badge>,
+                      <Mono muted>{emp.daysWorked.length} day{emp.daysWorked.length !== 1 ? "s" : ""}</Mono>,
+                      <Mono>{emp.hours.toFixed(2)} hrs</Mono>,
+                      <Mono muted>{emp.rate ? fmt(emp.rate) : <Warn />}</Mono>,
+                      <Mono accent bold>{emp.rate ? fmt(emp.grossPay) : "—"}</Mono>,
+                    ]} />
+                  ))
+                }
+                {biweeklyPayroll.length > 0 && (
+                  <TotalFooter items={[
+                    { label: `Estimated Wages — ${selectedPeriod.label}`, value: fmt(totalBiweeklyWages), color: "var(--blue)", bold: true },
                   ]} />
-                ))
-              )}
-              {monthlyPayroll.length > 0 && (
-                <TotalFooter items={[
-                  { label: "Est. Total Wages",  value: fmt(totalMonthlyWages) },
-                  { label: "Total Tips",         value: fmt(totalMonthlyTips),  color: "var(--yellow)" },
-                  { label: "Est. Monthly Total", value: fmt(totalMonthlyWages + totalMonthlyTips), color: "var(--accent)", bold: true },
-                ]} />
-              )}
-            </>
-          )}
-        </Panel>
+                )}
+              </>
+            )}
+          </Panel>
+        </>
       )}
 
       {/* ── This Week's Tips ── */}
-      {activeView === "current" && (
+      {activeView === "tips_current" && (
         <Panel>
           <PanelHeader
             title={`${current.weekLabel || "This Week"} — Weekly Tip Totals`}
-            hint="Each employee's total tips for this week, pulled from Google Sheets. Hours shown are from this week only."
+            hint="Each employee's share of this week's tip pool, pulled from Google Sheets. Tips are paid out weekly, independent of the biweekly wage cycle."
           />
           {isMobile ? (
             currentPayroll.length === 0 ? <Empty text="No data in current week sheet" /> : (
@@ -315,25 +353,29 @@ export default function PayrollPanel() {
                       onTogglePayout={() => togglePayout(emp.name, wk, emp.weeklyTips, payout.paid)} />
                   );
                 })}
-                <MobileTotalFooter wages={totalCurrentWages} tips={totalCurrentTips} total={totalCurrentWages + totalCurrentTips} />
+                <MobileTotalFooter label="This Week's Tips" value={fmt(totalCurrentTips)} color="var(--yellow)" />
               </div>
             )
           ) : (
             <>
-              <TableHeader cols={["Employee", "Position", "Hours This Week", "Rate/hr", "Wage (This Wk Only)", "Weekly Tips", "Tips Paid Out?"]} />
+              <TableHeader cols={["Employee", "Position", "Hours This Week", "Rate / hr", "CC Tips", "Cash Tips", "Total Weekly Tips", "Tips Paid Out?"]} />
               {currentPayroll.length === 0 ? <Empty text="No data in current week sheet" /> : (
                 currentPayroll.map((emp, i) => {
                   const wk     = makeWeekKey("current", current.weekLabel || "current");
                   const payout = getPayout(wk, emp.name);
                   const sk     = `${wk}::${emp.name}`;
+                  // Get cc/cash breakdown from daily blocks
+                  const ccTips   = current.dailyBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.ccTips   || 0), 0);
+                  const cashTips = current.dailyBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.cashTips || 0), 0);
                   return (
-                    <TableRow key={emp.name} cols={7} last={i === currentPayroll.length - 1} cells={[
+                    <TableRow key={emp.name} cols={8} last={i === currentPayroll.length - 1} cells={[
                       <Name>{emp.name}</Name>,
                       <Badge pos={emp.position}>{emp.position}</Badge>,
-                      <Mono>{emp.hours.toFixed(2)} hrs</Mono>,
+                      <Mono muted>{emp.hours.toFixed(2)} hrs</Mono>,
                       <Mono muted>{emp.rate ? fmt(emp.rate) : <Warn />}</Mono>,
-                      <Mono muted>{emp.rate ? fmt(emp.grossPay) : "—"}</Mono>,
-                      <Mono yellow>{fmt(emp.weeklyTips)}</Mono>,
+                      <Mono muted>{fmt(ccTips)}</Mono>,
+                      <Mono muted>{fmt(cashTips)}</Mono>,
+                      <Mono yellow bold>{fmt(emp.weeklyTips)}</Mono>,
                       <PayoutButton paid={payout.paid} saving={!!payoutSaving[sk]}
                         onToggle={() => togglePayout(emp.name, wk, emp.weeklyTips, payout.paid)} />,
                     ]} />
@@ -342,8 +384,7 @@ export default function PayrollPanel() {
               )}
               {currentPayroll.length > 0 && (
                 <TotalFooter items={[
-                  { label: "Wages (this week only)", value: fmt(totalCurrentWages), color: "var(--text-muted)" },
-                  { label: "Weekly Tips Pool",        value: fmt(totalCurrentTips),  color: "var(--yellow)" },
+                  { label: "Total Weekly Tips", value: fmt(totalCurrentTips), color: "var(--yellow)", bold: true },
                 ]} />
               )}
             </>
@@ -352,17 +393,17 @@ export default function PayrollPanel() {
       )}
 
       {/* ── Last Week's Tips ── */}
-      {activeView === "past" && (
+      {activeView === "tips_past" && (
         <Panel>
           <PanelHeader
             title={`${past.weekLabel || "Last Week"} — Weekly Tip Totals`}
-            hint="Each employee's total tips for last week, pulled from Google Sheets. Hours shown are from that week only."
+            hint="Each employee's share of last week's tip pool. Tips are paid out weekly, independent of the biweekly wage cycle."
           />
           {isMobile ? (
             pastPayroll.length === 0 ? <Empty text="No data in past weeks sheet" /> : (
               <div>
                 <div style={{ padding: "8px 14px", fontSize: 11, color: "var(--text-dim)", borderBottom: "1px solid var(--border)" }}>
-                  {past.weekLabel} — cumulative hours for that week
+                  {past.weekLabel} — hours and tips for that week
                 </div>
                 {pastPayroll.map((emp, i) => {
                   const wk     = makeWeekKey("past", past.weekLabel || "past");
@@ -374,24 +415,28 @@ export default function PayrollPanel() {
                       onTogglePayout={() => togglePayout(emp.name, wk, emp.weeklyTips, payout.paid)} />
                   );
                 })}
+                <MobileTotalFooter label="Last Week's Tips" value={fmt(totalPastTips)} color="var(--yellow)" />
               </div>
             )
           ) : (
             <>
-              <TableHeader cols={["Employee", "Position", "Hours Last Week", "Rate/hr", "Wage (Last Wk Only)", "Weekly Tips", "Tips Paid Out?"]} />
+              <TableHeader cols={["Employee", "Position", "Hours Last Week", "Rate / hr", "CC Tips", "Cash Tips", "Total Weekly Tips", "Tips Paid Out?"]} />
               {pastPayroll.length === 0 ? <Empty text="No data in past weeks sheet" /> : (
                 pastPayroll.map((emp, i) => {
                   const wk     = makeWeekKey("past", past.weekLabel || "past");
                   const payout = getPayout(wk, emp.name);
                   const sk     = `${wk}::${emp.name}`;
+                  const ccTips   = past.dailyBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.ccTips   || 0), 0);
+                  const cashTips = past.dailyBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.cashTips || 0), 0);
                   return (
-                    <TableRow key={emp.name} cols={7} last={i === pastPayroll.length - 1} cells={[
+                    <TableRow key={emp.name} cols={8} last={i === pastPayroll.length - 1} cells={[
                       <Name>{emp.name}</Name>,
                       <Badge pos={emp.position}>{emp.position}</Badge>,
-                      <Mono>{emp.hours.toFixed(2)} hrs</Mono>,
+                      <Mono muted>{emp.hours.toFixed(2)} hrs</Mono>,
                       <Mono muted>{emp.rate ? fmt(emp.rate) : <Warn />}</Mono>,
-                      <Mono muted>{emp.rate ? fmt(emp.grossPay) : "—"}</Mono>,
-                      <Mono yellow>{fmt(emp.weeklyTips)}</Mono>,
+                      <Mono muted>{fmt(ccTips)}</Mono>,
+                      <Mono muted>{fmt(cashTips)}</Mono>,
+                      <Mono yellow bold>{fmt(emp.weeklyTips)}</Mono>,
                       <PayoutButton paid={payout.paid} saving={!!payoutSaving[sk]}
                         onToggle={() => togglePayout(emp.name, wk, emp.weeklyTips, payout.paid)} />,
                     ]} />
@@ -400,8 +445,7 @@ export default function PayrollPanel() {
               )}
               {pastPayroll.length > 0 && (
                 <TotalFooter items={[
-                  { label: "Wages (last week only)", value: fmt(totalPastWages),  color: "var(--text-muted)" },
-                  { label: "Weekly Tips Pool",        value: fmt(totalPastTips),   color: "var(--yellow)" },
+                  { label: "Total Weekly Tips", value: fmt(totalPastTips), color: "var(--yellow)", bold: true },
                 ]} />
               )}
             </>
@@ -410,24 +454,21 @@ export default function PayrollPanel() {
       )}
 
       {/* ── Daily Tip Breakdown ── */}
-      {activeView === "daily" && (
+      {activeView === "tips_daily" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <InfoBanner>
-            Tip amounts distributed per employee per day, based on hours worked and shift type. Pulled live from Google Sheets. Use the <strong>Tips Paid Out?</strong> button to mark daily tips as distributed.
-          </InfoBanner>
+          <div style={{ padding: "10px 14px", borderRadius: 8, fontSize: 12, background: "var(--blue-dim)", border: "1px solid rgba(96,165,250,0.2)", color: "var(--text-muted)", lineHeight: 1.6 }}>
+            Daily tip amounts per employee based on hours worked and shift type, pulled from Google Sheets. Mark each day's tips as paid out once distributed.
+          </div>
           {current.dailyBlocks.length === 0 && <Panel><Empty text="No daily data found in current week sheet" /></Panel>}
           {current.dailyBlocks.map((day) => (
             <Panel key={day.date}>
-              <div style={{
-                padding: "12px 14px", borderBottom: "1px solid var(--border)",
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-              }}>
+              <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <span style={{ fontWeight: 600, fontSize: 13 }}>{day.dayName}</span>
                   <span style={{ color: "var(--text-dim)", fontSize: 11, marginLeft: 8, fontFamily: "var(--font-mono)" }}>{day.date}</span>
                 </div>
                 <span style={{ fontFamily: "var(--font-mono)", color: "var(--yellow)", fontWeight: 600, fontSize: 12 }}>
-                  Daily Pool: {fmt(day.employees.reduce((s, e) => s + (e.totalTips || 0), 0))}
+                  Daily Tip Pool: {fmt(day.employees.reduce((s, e) => s + (e.totalTips || 0), 0))}
                 </span>
               </div>
               {isMobile ? (
@@ -454,10 +495,10 @@ export default function PayrollPanel() {
                       <TableRow key={emp.name} cols={7} last={i === arr.length - 1} cells={[
                         <Name>{emp.name}</Name>,
                         <Badge pos={emp.position}>{emp.position}</Badge>,
-                        <Mono>{emp.hours.toFixed(2)} hrs</Mono>,
+                        <Mono muted>{emp.hours.toFixed(2)} hrs</Mono>,
                         <Mono muted>{fmt(emp.ccTips)}</Mono>,
                         <Mono muted>{fmt(emp.cashTips)}</Mono>,
-                        <Mono yellow>{fmt(emp.totalTips)}</Mono>,
+                        <Mono yellow bold>{fmt(emp.totalTips)}</Mono>,
                         <PayoutButton paid={payout.paid} saving={!!payoutSaving[sk]}
                           onToggle={() => togglePayout(emp.name, wk, emp.totalTips, payout.paid)} />,
                       ]} />
@@ -470,12 +511,12 @@ export default function PayrollPanel() {
         </div>
       )}
 
-      {/* ── Hourly Wage Settings ── */}
-      {activeView === "wages" && (
+      {/* ── Hourly Rate Settings ── */}
+      {activeView === "wage_settings" && (
         <Panel>
           <PanelHeader
-            title="Hourly Wage Settings"
-            hint="Set each employee's hourly rate. Used to calculate estimated wages. Rates are saved to your Notion database."
+            title="Hourly Rate Settings"
+            hint="Set each employee's hourly rate. Rates are saved to Notion and used to calculate estimated biweekly wages."
           />
           {allEmployeeNames.length === 0 ? <Empty text="No employees found in Google Sheet" /> : (
             allEmployeeNames.map((emp, i) => (
@@ -520,22 +561,18 @@ export default function PayrollPanel() {
 
 // ── Mobile card components ─────────────────────────────────
 
-function MonthlyEmployeeCard({ emp, last }) {
+function BiweeklyEmployeeCard({ emp, last }) {
   return (
     <div style={{ padding: "14px 14px", borderBottom: last ? "none" : "1px solid var(--border)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <span style={{ fontWeight: 600, fontSize: 14 }}>{emp.name}</span>
         <Badge pos={emp.position}>{emp.position}</Badge>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 6 }}>
-        <MiniStat label="Last Wk Hrs" value={`${emp.pastHours.toFixed(1)}h`} />
-        <MiniStat label="This Wk Hrs" value={`${emp.currentHours.toFixed(1)}h`} />
-        <MiniStat label="Total Hrs"   value={`${emp.totalHours.toFixed(1)}h`} />
+        <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: "auto" }}>{emp.daysWorked.length} day{emp.daysWorked.length !== 1 ? "s" : ""}</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
-        <MiniStat label="Rate"       value={emp.rate ? `$${emp.rate}/h` : "—"} warn={!emp.rate} />
-        <MiniStat label="Est. Wages" value={emp.rate ? fmt(emp.grossPay) : "—"} color="var(--accent)" />
-        <MiniStat label="Total Tips" value={fmt(emp.totalTips)} color="var(--yellow)" />
+        <MiniStat label="Total Hours"  value={`${emp.hours.toFixed(1)}h`} />
+        <MiniStat label="Rate"         value={emp.rate ? `$${emp.rate}/h` : "—"} warn={!emp.rate} />
+        <MiniStat label="Est. Wages"   value={emp.rate ? fmt(emp.grossPay) : "—"} color="var(--blue)" />
       </div>
     </div>
   );
@@ -551,11 +588,10 @@ function EmployeeCard({ emp, last, payout, saving, onTogglePayout }) {
         </div>
         <PayoutButton paid={payout.paid} saving={saving} onToggle={onTogglePayout} />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
-        <MiniStat label="Hours"        value={`${emp.hours.toFixed(1)}h`} />
-        <MiniStat label="Rate"         value={emp.rate ? `$${emp.rate}/h` : "—"} warn={!emp.rate} />
-        <MiniStat label="Wage (wk)"    value={emp.rate ? fmt(emp.grossPay) : "—"} color="var(--accent)" />
-        <MiniStat label="Weekly Tips"  value={fmt(emp.weeklyTips)} color="var(--yellow)" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+        <MiniStat label="Hours This Wk" value={`${emp.hours.toFixed(1)}h`} />
+        <MiniStat label="Rate"          value={emp.rate ? `$${emp.rate}/h` : "—"} warn={!emp.rate} />
+        <MiniStat label="Weekly Tips"   value={fmt(emp.weeklyTips)} color="var(--yellow)" />
       </div>
     </div>
   );
@@ -592,21 +628,11 @@ function MiniStat({ label, value, color, warn }) {
   );
 }
 
-function MobileTotalFooter({ wages, tips, total }) {
+function MobileTotalFooter({ label, value, color }) {
   return (
-    <div style={{ padding: "12px 14px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between" }}>
-      <div>
-        <div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Est. Wages</div>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600, color: "var(--blue)" }}>{fmt(wages)}</div>
-      </div>
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Tips</div>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600, color: "var(--yellow)" }}>{fmt(tips)}</div>
-      </div>
-      <div style={{ textAlign: "right" }}>
-        <div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Est. Total</div>
-        <div style={{ fontFamily: "var(--font-mono)", fontSize: 15, fontWeight: 700, color: "var(--accent)" }}>{fmt(total)}</div>
-      </div>
+    <div style={{ padding: "12px 14px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <span style={{ fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: 15, fontWeight: 700, color }}>{value}</span>
     </div>
   );
 }
@@ -649,11 +675,8 @@ function StatCard({ label, value, color, hint }) {
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 }}>
         <div style={{ fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", flex: 1, lineHeight: 1.4 }}>{label}</div>
         {hint && (
-          <button
-            onMouseEnter={() => setShowHint(true)}
-            onMouseLeave={() => setShowHint(false)}
-            style={{ width: 16, height: 16, borderRadius: "50%", background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--text-dim)", fontSize: 10, cursor: "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginLeft: 6 }}
-          >?</button>
+          <button onMouseEnter={() => setShowHint(true)} onMouseLeave={() => setShowHint(false)}
+            style={{ width: 16, height: 16, borderRadius: "50%", background: "var(--surface2)", border: "1px solid var(--border)", color: "var(--text-dim)", fontSize: 10, cursor: "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginLeft: 6 }}>?</button>
         )}
       </div>
       <div style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 700, color, letterSpacing: "-1px" }}>{value}</div>
@@ -671,14 +694,6 @@ function PanelHeader({ title, hint }) {
     <div style={{ padding: "12px 18px", borderBottom: "1px solid var(--border)" }}>
       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: hint ? 4 : 0 }}>{title}</div>
       {hint && <div style={{ fontSize: 11, color: "var(--text-dim)", lineHeight: 1.5 }}>{hint}</div>}
-    </div>
-  );
-}
-
-function InfoBanner({ children }) {
-  return (
-    <div style={{ padding: "10px 14px", borderRadius: 8, fontSize: 12, background: "var(--blue-dim)", border: "1px solid rgba(96,165,250,0.2)", color: "var(--text-muted)", lineHeight: 1.6 }}>
-      {children}
     </div>
   );
 }
