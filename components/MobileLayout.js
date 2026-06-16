@@ -60,7 +60,7 @@ export default function MobileLayout({
   onDeleteExpense, onDeleteIncome,
   totalIncome, totalExpenses, net,
   theme, toggleTheme,
-  managerAuthed, managerLogout,
+  managerAuthed, managerLogout, managerLogin,
 }) {
   const [pendingTab, setPendingTab] = useState(null);
   const [fabOpen, setFabOpen] = useState(false);
@@ -266,7 +266,11 @@ export default function MobileLayout({
       {pendingTab && (
         <ManagerGate
           tabName={pendingTab}
-          onSuccess={() => { if (pendingTab !== '__login__') setActiveTab(pendingTab); setPendingTab(null); }}
+          onSuccess={() => {
+            managerLogin();
+            if (pendingTab !== "__login__") setActiveTab(pendingTab);
+            setPendingTab(null);
+          }}
           onCancel={() => setPendingTab(null)}
         />
       )}
