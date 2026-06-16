@@ -1,34 +1,15 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, createContext, useContext } from "react";
 
 const MANAGER_PASSWORD = "9999";
-const SESSION_KEY      = "ledger_manager_auth";
+
+// ── Auth context — lives in _app.js, no sessionStorage needed ─────────────
+export const ManagerAuthContext = createContext({ authed: false, login: () => false, logout: () => {} });
 
 export function useManagerAuth() {
-  // Initialize synchronously from sessionStorage so there is no render
-  // where authed=false despite being logged in (which caused the gate to
-  // flash open even when already authenticated)
-  const [authed, setAuthed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return sessionStorage.getItem(SESSION_KEY) === "true";
-  });
-
-  function login(password) {
-    if (password === MANAGER_PASSWORD) {
-      sessionStorage.setItem(SESSION_KEY, "true");
-      setAuthed(true);
-      return true;
-    }
-    return false;
-  }
-
-  function logout() {
-    sessionStorage.removeItem(SESSION_KEY);
-    setAuthed(false);
-  }
-
-  return { authed, login, logout };
+  return useContext(ManagerAuthContext);
 }
 
+// ── Modal component ────────────────────────────────────────────────────────
 export default function ManagerGate({ onSuccess, onCancel, tabName }) {
   const [password, setPassword] = useState("");
   const [error, setError]       = useState("");
@@ -36,14 +17,20 @@ export default function ManagerGate({ onSuccess, onCancel, tabName }) {
   const inputRef                = useRef(null);
 
   useEffect(() => {
-    // Focus input when modal opens
-    setTimeout(() => inputRef.current?.focus(), 50);
+    const t = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(t);
   }, []);
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onCancel(); };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [onCancel]);
 
   function handleSubmit(e) {
     e.preventDefault();
     if (password === MANAGER_PASSWORD) {
-      sessionStorage.setItem(SESSION_KEY, "true");
       onSuccess();
     } else {
       setError("Incorrect password");
@@ -52,6 +39,10 @@ export default function ManagerGate({ onSuccess, onCancel, tabName }) {
       setTimeout(() => setShake(false), 500);
     }
   }
+
+  const subtitle = tabName === "__login__"
+    ? "Sign in to access manager features."
+    : null;
 
   return (
     <div
@@ -66,28 +57,16 @@ export default function ManagerGate({ onSuccess, onCancel, tabName }) {
       }}
     >
       <div
+        className={shake ? "manager-gate-shake" : ""}
         style={{
           background: "var(--surface)",
           border: "1px solid var(--border)",
           borderRadius: 14,
           width: "100%", maxWidth: 360,
           padding: "28px 28px 24px",
-          animation: shake
-            ? "shake 0.4s ease"
-            : "slideUp 0.2s ease forwards",
-          overflow: "hidden",
+          animation: shake ? undefined : "slideUp 0.2s ease forwards",
         }}
       >
-        <style>{`
-          @keyframes shake {
-            0%,100% { transform: translateX(0); }
-            20%      { transform: translateX(-8px); }
-            40%      { transform: translateX(8px); }
-            60%      { transform: translateX(-5px); }
-            80%      { transform: translateX(5px); }
-          }
-        `}</style>
-
         {/* Lock icon */}
         <div style={{ textAlign: "center", marginBottom: 20 }}>
           <div style={{
@@ -103,13 +82,18 @@ export default function ManagerGate({ onSuccess, onCancel, tabName }) {
           </div>
           <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Manager Access</div>
           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-            {tabName === "__login__" ? "Sign in to access manager features." : <><strong style={{ color: "var(--text)" }}>{tabName}</strong> is restricted to managers.</>}
+            {subtitle || (
+              <><strong style={{ color: "var(--text)" }}>{tabName}</strong> is restricted to managers.</>
+            )}
           </div>
         </div>
 
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <label style={{ fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
+            <label style={{
+              fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase",
+              letterSpacing: "0.06em", display: "block", marginBottom: 6,
+            }}>
               Manager Password
             </label>
             <input
@@ -129,9 +113,7 @@ export default function ManagerGate({ onSuccess, onCancel, tabName }) {
               }}
             />
             {error && (
-              <div style={{ marginTop: 6, fontSize: 12, color: "var(--red)" }}>
-                {error}
-              </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: "var(--red)" }}>{error}</div>
             )}
           </div>
 
@@ -143,7 +125,6 @@ export default function ManagerGate({ onSuccess, onCancel, tabName }) {
                 flex: 1, padding: "9px 0", borderRadius: 8, border: "none",
                 background: "var(--surface2)", color: "var(--text-muted)",
                 fontSize: 13, fontWeight: 500, cursor: "pointer",
-                transition: "background 0.15s ease",
               }}
             >
               Cancel
@@ -154,7 +135,6 @@ export default function ManagerGate({ onSuccess, onCancel, tabName }) {
                 flex: 1, padding: "9px 0", borderRadius: 8, border: "none",
                 background: "var(--accent)", color: "#000",
                 fontSize: 13, fontWeight: 700, cursor: "pointer",
-                transition: "opacity 0.15s ease",
               }}
             >
               Unlock
