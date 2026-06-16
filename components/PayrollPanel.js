@@ -736,10 +736,12 @@ function TotalFooter({ items }) {
 function Name({ children }) { return <span style={{ fontWeight: 500 }}>{children}</span>; }
 
 function Badge({ pos, children }) {
-  const isServer  = String(pos).toLowerCase().includes("server");
-  const isKitchen = String(pos).toLowerCase().includes("kitchen");
+  const p = String(pos).toLowerCase();
+  // Support both old (Server/Kitchen) and new (FOH/BOH) position labels
+  const isFront = p.includes("server") || p.includes("foh");
+  const isBack  = p.includes("kitchen") || p.includes("boh");
   return (
-    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 500, background: isServer ? "var(--blue-dim)" : isKitchen ? "rgba(251,146,60,0.12)" : "var(--surface2)", color: isServer ? "var(--blue)" : isKitchen ? "#fb923c" : "var(--text-muted)" }}>
+    <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 10, fontSize: 11, fontWeight: 500, background: isFront ? "var(--blue-dim)" : isBack ? "rgba(251,146,60,0.12)" : "var(--surface2)", color: isFront ? "var(--blue)" : isBack ? "#fb923c" : "var(--text-muted)" }}>
       {children || "—"}
     </span>
   );
