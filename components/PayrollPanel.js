@@ -235,7 +235,7 @@ export default function PayrollPanel() {
   function EmployeeBadges({ name, position }) {
     const roles = employeeRolesMap[name];
     if (roles && roles.size > 1) {
-      return <>{[...roles].sort().map((r) => <Badge key={r} pos={r}>{r}</Badge>)}</>;
+      return <>{[...roles].sort((a,b) => a === "FOH" ? -1 : 1).map((r) => <Badge key={r} pos={r}>{r}</Badge>)}</>;
     }
     return <Badge pos={position}>{position}</Badge>;
   }
@@ -757,7 +757,7 @@ function EmployeeCard({ emp, last, payout, saving, onTogglePayout, employeeRoles
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontWeight: 600, fontSize: 14 }}>{emp.name}</span>
           {employeeRolesMap?.[emp.name]?.size > 1
-            ? [...(employeeRolesMap[emp.name])].sort().map((r) => <Badge key={r} pos={r}>{r}</Badge>)
+            ? [...(employeeRolesMap[emp.name])].sort((a,b) => a === "FOH" ? -1 : 1).map((r) => <Badge key={r} pos={r}>{r}</Badge>)
             : <Badge pos={emp.position}>{emp.position}</Badge>
           }
         </div>
@@ -778,7 +778,7 @@ function DailyEmployeeCard({ emp, last, payout, saving, onTogglePayout, employee
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontWeight: 600, fontSize: 13 }}>{emp.name}</span>
           {employeeRolesMap?.[emp.name]?.size > 1
-            ? [...(employeeRolesMap[emp.name])].sort().map((r) => <Badge key={r} pos={r}>{r}</Badge>)
+            ? [...(employeeRolesMap[emp.name])].sort((a,b) => a === "FOH" ? -1 : 1).map((r) => <Badge key={r} pos={r}>{r}</Badge>)
             : <Badge pos={emp.position}>{emp.position}</Badge>
           }
         </div>
