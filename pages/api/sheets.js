@@ -63,13 +63,6 @@ function classifyRow(row) {
   // Day-name row immediately after a pool header
   if (/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/i.test(b)) return "day_name";
 
-  // Names row: col B is empty, col C is a short non-label string
-  if ((b === "" || b === null) &&
-      typeof c === "string" && c.trim().length > 0 &&
-      c.trim().length <= 40 &&
-      !c.includes(":") &&
-      !(c === c.toUpperCase() && c.trim().length > 6))               return "names";
-
   return null; // skip anything else (banners, notes, error checkers…)
 }
 
@@ -99,6 +92,20 @@ function getEmployees(nameRow) {
     }
   }
   return employees;
+}
+
+
+// Names row: col B is empty/"", col C is a short employee name string
+// Only used inside block scanners, not at the top level
+function isNamesRow(row) {
+  const b = row[1];
+  const c = row[2];
+  return (b === "" || b === null || b === undefined) &&
+         typeof c === "string" &&
+         c.trim().length > 0 &&
+         c.trim().length <= 40 &&
+         !c.includes(":") &&
+         !(c.trim() === c.trim().toUpperCase() && c.trim().length > 6);
 }
 
 function sumCols(row, cols) {
@@ -136,7 +143,7 @@ function parseSheet(rows) {
       for (let j = i + 1; j < Math.min(i + 12, rows.length); j++) {
         const r   = rows[j] || [];
         const rtag = classifyRow(r);
-        if (rtag === "names"        && !namesRow_)      namesRow_      = r;
+        if (isNamesRow(r)           && !namesRow_)      namesRow_      = r;
         if (rtag === "position"     && !posRow_)        posRow_        = r;
         if (rtag === "hours"        && !hoursRow_)      hoursRow_      = r;
         if (rtag === "weekly_tips"  && !weeklyTipsRow_) {
@@ -197,7 +204,7 @@ function parseSheet(rows) {
         const rtag = classifyRow(r);
 
         if (!valRow_  && rtag === "day_name") { valRow_ = r; dayName = (r[1] ?? "").toString().trim(); }
-        else if (!namesRow_  && rtag === "names")     namesRow_  = r;
+        else if (!namesRow_  && isNamesRow(r))         namesRow_  = r;
         else if (!posRow_    && rtag === "position")  posRow_    = r;
         else if (!hoursRow_  && rtag === "hours")     hoursRow_  = r;
         else if (!ccRow_     && rtag === "cc_tips") {
