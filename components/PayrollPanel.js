@@ -580,6 +580,7 @@ export default function PayrollPanel() {
             <Panel><Empty text="No week history found in Past Weeks sheet" /></Panel>
           ) : allWeeks.map((week) => {
             const weekTotal = week.weeklyTipsTotal || 0;
+            const wk = makeWeekKey("history", week.weekLabel);
             return (
               <Panel key={week.weekLabel}>
                 <div style={{ padding: "12px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -590,32 +591,44 @@ export default function PayrollPanel() {
                 </div>
                 {isMobile ? (
                   <div>
-                    {week.employees.map((emp, idx) => (
-                      <div key={emp.name} style={{
-                        padding: "10px 14px",
-                        borderBottom: idx < week.employees.length - 1 ? "1px solid var(--border)" : "none",
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
-                      }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ fontWeight: 500, fontSize: 13 }}>{emp.name}</span>
-                          <EmployeeBadges name={emp.name} position={emp.position} />
+                    {week.employees.map((emp, idx) => {
+                      const payout = getPayout(wk, emp.name);
+                      const sk     = `${wk}::${emp.name}`;
+                      return (
+                        <div key={emp.name} style={{
+                          padding: "10px 14px",
+                          borderBottom: idx < week.employees.length - 1 ? "1px solid var(--border)" : "none",
+                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                        }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                            <span style={{ fontWeight: 500, fontSize: 13 }}>{emp.name}</span>
+                            <EmployeeBadges name={emp.name} position={emp.position} />
+                          </div>
+                          <span style={{ fontFamily: "var(--font-mono)", color: "var(--yellow)", fontWeight: 600, fontSize: 13, flexShrink: 0 }}>
+                            {fmt(emp.weeklyTips)}
+                          </span>
+                          <PayoutButton paid={payout.paid} saving={!!payoutSaving[sk]}
+                            onToggle={() => togglePayout(emp.name, wk, emp.weeklyTips, payout.paid)} />
                         </div>
-                        <span style={{ fontFamily: "var(--font-mono)", color: "var(--yellow)", fontWeight: 600, fontSize: 13 }}>
-                          {fmt(emp.weeklyTips)}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <>
-                    <TableHeader cols={["Employee", "Position", "Weekly Tips"]} />
-                    {week.employees.map((emp, idx) => (
-                      <TableRow key={emp.name} cols={3} last={idx === week.employees.length - 1} cells={[
-                        <Name>{emp.name}</Name>,
-                        <EmployeeBadges name={emp.name} position={emp.position} />,
-                        <Mono yellow bold>{fmt(emp.weeklyTips)}</Mono>,
-                      ]} />
-                    ))}
+                    <TableHeader cols={["Employee", "Position", "Weekly Tips", "Tips Paid Out?"]} />
+                    {week.employees.map((emp, idx) => {
+                      const payout = getPayout(wk, emp.name);
+                      const sk     = `${wk}::${emp.name}`;
+                      return (
+                        <TableRow key={emp.name} cols={4} last={idx === week.employees.length - 1} cells={[
+                          <Name>{emp.name}</Name>,
+                          <EmployeeBadges name={emp.name} position={emp.position} />,
+                          <Mono yellow bold>{fmt(emp.weeklyTips)}</Mono>,
+                          <PayoutButton paid={payout.paid} saving={!!payoutSaving[sk]}
+                            onToggle={() => togglePayout(emp.name, wk, emp.weeklyTips, payout.paid)} />,
+                        ]} />
+                      );
+                    })}
                     <TotalFooter items={[
                       { label: "Week Total", value: fmt(weekTotal), color: "var(--yellow)", bold: true },
                     ]} />
