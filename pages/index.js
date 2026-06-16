@@ -9,7 +9,8 @@ import AnalyticsPanel from "../components/AnalyticsPanel";
 import MobileLayout from "../components/MobileLayout";
 import { useIsMobile } from "../lib/useIsMobile";
 import ExportPanel from "../components/ExportPanel";
-import ManagerGate, { useManagerAuth } from "../components/ManagerGate";
+import ManagerGate from "../components/ManagerGate";
+import { useManagerAuth } from "../lib/ManagerAuthContext";
 
 const tabs = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Payroll", "Export"];
 const MANAGER_TABS = new Set(["Startup", "Analytics", "Payroll", "Export"]);
@@ -242,22 +243,27 @@ export default function Home() {
   return (
     <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       {/* Header */}
-      <header style={{ borderBottom: "1px solid var(--border)", background: "var(--surface)", position: "sticky", top: 0, zIndex: 50 }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 56 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <img src="/logo.png" alt="AN" style={{ height: 32, width: "auto", display: "block" }} />
-              <span style={{ color: "var(--text-dim)", fontSize: 13 }}>Restaurant Ledger</span>
-            </div>
+      <header style={{
+        borderBottom: "1px solid var(--border)",
+        background: "var(--surface)",
+        position: "sticky", top: 0, zIndex: 50,
+        backdropFilter: "blur(12px)",
+      }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 var(--sp-6)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", height: 58 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 12, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+              <img src="/logo.png" alt="AN" style={{ height: 30, width: "auto", display: "block" }} />
+              <div style={{ width: 1, height: 18, background: "var(--border)" }} />
+              <span style={{ color: "var(--text-dim)", fontSize: "var(--text-sm)", fontWeight: 500, letterSpacing: "0.01em" }}>Restaurant Ledger</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: "var(--text-xs)", color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontWeight: 500 }}>
                 {format(new Date(), "EEE, MMM d")}
               </span>
               <ThemeToggle theme={theme} onToggle={toggle} />
               {managerAuthed ? (
                 <ManagerBadge onLogout={() => {
                   managerLogout();
-                  // If on a restricted tab, go back to Daily
                   if (MANAGER_TABS.has(activeTab)) setActiveTab("Daily");
                 }} />
               ) : (
@@ -267,30 +273,21 @@ export default function Home() {
           </div>
         </div>
 
-        {activeTab !== "Payroll" && (
+        {activeTab !== "Payroll" && activeTab !== "Analytics" && activeTab !== "Export" && (
           <SummaryBar totalIncome={totalIncome} totalExpenses={totalExpenses} net={net} period={periodLabel} loading={loading} />
         )}
 
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px", display: "flex", gap: 4 }}>
+        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 var(--sp-6)" }} className="tab-nav">
           {tabs.map((tab) => {
             const isRestricted = MANAGER_TABS.has(tab) && !managerAuthed;
             return (
-              <button key={tab} onClick={() => handleTabClick(tab)} style={{
-                padding: "10px 16px", fontSize: 13,
-                fontWeight: activeTab === tab ? 600 : 400,
-                color: activeTab === tab ? "var(--text)" : isRestricted ? "var(--text-dim)" : "var(--text-muted)",
-                borderBottom: `2px solid ${activeTab === tab ? "var(--accent)" : "transparent"}`,
-                transition: "all 0.15s ease",
-                background: "none", border: "none",
-                borderBottom: `2px solid ${activeTab === tab ? "var(--accent)" : "transparent"}`,
-                cursor: "pointer",
-                display: "flex", alignItems: "center", gap: 5,
-              }}>
+              <button key={tab} onClick={() => handleTabClick(tab)}
+                className={`tab-btn ${activeTab === tab ? "active" : ""} ${isRestricted ? "restricted" : ""}`}>
                 {tab}
                 {isRestricted && (
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none"
                     stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                    style={{ opacity: 0.5 }}>
+                    style={{ opacity: 0.4 }}>
                     <rect x="3" y="11" width="18" height="11" rx="2"/>
                     <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                   </svg>
@@ -302,7 +299,7 @@ export default function Home() {
       </header>
 
       {/* Main */}
-      <main style={{ flex: 1, maxWidth: 1100, margin: "0 auto", width: "100%", padding: "28px 24px" }}>
+      <main style={{ flex: 1, maxWidth: 1100, margin: "0 auto", width: "100%", padding: "var(--sp-8) var(--sp-6)" }}>
         {activeTab === "Payroll" ? (
           <PayrollPanel />
         ) : activeTab === "Analytics" ? (
@@ -312,27 +309,27 @@ export default function Home() {
         ) : (
           <>
             {/* Period nav + actions */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--sp-6)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-3)" }}>
                 {activeTab !== "Startup" ? (
                   <>
                     <NavBtn onClick={() => shiftDate(-1)}>‹</NavBtn>
-                    <span style={{ fontSize: 15, fontWeight: 600, minWidth: 160, textAlign: "center" }}>{periodLabel}</span>
+                    <span style={{ fontSize: "var(--text-lg)", fontWeight: 700, minWidth: 180, textAlign: "center", letterSpacing: "-0.02em" }}>{periodLabel}</span>
                     <NavBtn onClick={() => shiftDate(1)}>›</NavBtn>
                   </>
                 ) : (
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>Startup Costs</span>
+                  <span style={{ fontSize: "var(--text-lg)", fontWeight: 700, letterSpacing: "-0.02em" }}>Startup Costs</span>
                 )}
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: "var(--sp-2)" }}>
                 {activeTab !== "Startup" && (
-                  <ActionBtn onClick={() => setModal({ type: "income" })} color="var(--accent)" label="+ Income" />
+                  <button onClick={() => setModal({ type: "income" })} className="action-btn-income">+ Income</button>
                 )}
-                <ActionBtn onClick={() => setModal({ type: "expense" })} color="var(--red)" label="+ Expense" />
+                <button onClick={() => setModal({ type: "expense" })} className="action-btn-expense">+ Expense</button>
               </div>
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: activeTab === "Startup" ? "1fr" : "1fr 1fr", gap: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: activeTab === "Startup" ? "1fr" : "1fr 1fr", gap: "var(--sp-5)" }}>
               {activeTab !== "Startup" && (
                 <EntriesTable
                   title="Income" entries={income} type="income" loading={loading} color="var(--accent)"
@@ -432,24 +429,21 @@ function ActionBtn({ onClick, color, label }) {
 function ManagerBadge({ onLogout }) {
   const [hover, setHover] = useState(false);
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
       <span style={{
-        fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: 20,
-        background: "var(--accent-dim)", color: "var(--accent)",
-        border: "1px solid var(--accent-glow)", letterSpacing: "0.05em",
+        fontSize: "var(--text-xs)", fontWeight: 600, padding: "3px 9px", borderRadius: 20,
+        background: "var(--accent-dim)", color: "var(--accent-text)",
+        border: "1px solid var(--accent-glow)", letterSpacing: "0.06em",
         textTransform: "uppercase",
       }}>Manager</span>
-      <button
-        onClick={onLogout}
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
+      <button onClick={onLogout} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
         title="Sign out of manager view"
         style={{
-          padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 500,
+          padding: "4px 10px", borderRadius: "var(--radius-sm)", fontSize: "var(--text-xs)", fontWeight: 500,
           background: hover ? "var(--red-dim)" : "var(--surface2)",
           color: hover ? "var(--red)" : "var(--text-dim)",
-          border: `1px solid ${hover ? "rgba(245,101,101,0.3)" : "var(--border)"}`,
-          cursor: "pointer", transition: "all 0.15s ease",
+          border: `1px solid ${hover ? "var(--red-glow)" : "var(--border)"}`,
+          cursor: "pointer", transition: "all 0.12s var(--ease)",
         }}
       >Sign out</button>
     </div>
@@ -459,18 +453,15 @@ function ManagerBadge({ onLogout }) {
 function ManagerLoginBtn({ onLogin }) {
   const [hover, setHover] = useState(false);
   return (
-    <button
-      onClick={onLogin}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+    <button onClick={onLogin} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
       title="Sign in as manager"
       style={{
-        display: "flex", alignItems: "center", gap: 5,
-        padding: "5px 11px", borderRadius: 6, fontSize: 11, fontWeight: 500,
+        display: "flex", alignItems: "center", gap: "var(--sp-1)",
+        padding: "5px 11px", borderRadius: "var(--radius-sm)", fontSize: "var(--text-xs)", fontWeight: 500,
         background: hover ? "var(--surface2)" : "transparent",
         color: hover ? "var(--text-muted)" : "var(--text-dim)",
         border: `1px solid ${hover ? "var(--border)" : "transparent"}`,
-        cursor: "pointer", transition: "all 0.15s ease",
+        cursor: "pointer", transition: "all 0.12s var(--ease)",
       }}
     >
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
