@@ -180,17 +180,19 @@ export default function PayrollPanel() {
   const biweeklyPayroll  = buildBiweeklyPayroll();
   const currentPayroll   = buildWeeklyPayroll(current);
   const pastPayroll      = buildWeeklyPayroll(past);
+  const allWeeks         = sheetsData?.past?.allWeeks || [];
 
   const totalBiweeklyWages = biweeklyPayroll.reduce((s, e) => s + e.grossPay, 0);
   const totalCurrentTips   = current.weeklyTipsTotal || 0;
   const totalPastTips      = past.weeklyTipsTotal    || 0;
 
   const subViews = [
-    { id: "wages_biweekly", label: isMobile ? "Wages"     : "Biweekly Wages",    desc: "Hours × hourly rate for the selected pay period" },
-    { id: "tips_current",   label: isMobile ? "This Wk"  : "This Week's Tips",   desc: `${current.weekLabel || "Current week"} — weekly tip totals` },
-    { id: "tips_past",      label: isMobile ? "Last Wk"  : "Last Week's Tips",   desc: `${past.weekLabel || "Past week"} — weekly tip totals` },
-    { id: "tips_daily",     label: isMobile ? "Daily"    : "Daily Tip Breakdown",desc: "Per-day tip amounts pulled from Google Sheets" },
-    { id: "wage_settings",  label: isMobile ? "Settings" : "Hourly Rate Settings",desc: "Set each employee's hourly rate" },
+    { id: "wages_biweekly", label: isMobile ? "Wages"    : "Biweekly Wages",     desc: "Hours × hourly rate for the selected pay period" },
+    { id: "tips_current",   label: isMobile ? "This Wk" : "This Week's Tips",    desc: `${current.weekLabel || "Current week"} — weekly tip totals` },
+    { id: "tips_past",      label: isMobile ? "Last Wk" : "Last Week's Tips",    desc: `${past.weekLabel || "Past week"} — weekly tip totals` },
+    { id: "tips_daily",     label: isMobile ? "Daily"   : "Daily Tip Breakdown", desc: "Per-day tip amounts pulled from Google Sheets" },
+    { id: "history",        label: isMobile ? "History" : "Tips History",         desc: "All past weeks tip totals" },
+    { id: "wage_settings",  label: isMobile ? "Settings": "Hourly Rate Settings", desc: "Set each employee's hourly rate" },
   ];
 
   return (
@@ -508,6 +510,64 @@ export default function PayrollPanel() {
               )}
             </Panel>
           ))}
+        </div>
+      )}
+
+      {/* ── Tips History ── */}
+      {activeView === "history" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ padding: "10px 14px", borderRadius: 8, fontSize: 12, background: "var(--yellow-dim)", border: "1px solid rgba(246,201,14,0.2)", color: "var(--text-muted)", lineHeight: 1.6 }}>
+            All weeks from the <strong>Tips [Past Weeks]</strong> sheet, newest first. Weekly tip totals per employee.
+          </div>
+
+          {allWeeks.length === 0 ? (
+            <Panel><Empty text="No week history found in Past Weeks sheet" /></Panel>
+          ) : allWeeks.map((week) => {
+            const weekTotal = week.weeklyTipsTotal || 0;
+            return (
+              <Panel key={week.weekLabel}>
+                <div style={{ padding: "12px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{week.weekLabel}</span>
+                  <span style={{ fontFamily: "var(--font-mono)", color: "var(--yellow)", fontWeight: 700, fontSize: 13 }}>
+                    {fmt(weekTotal)} total
+                  </span>
+                </div>
+                {isMobile ? (
+                  <div>
+                    {week.employees.map((emp, idx) => (
+                      <div key={emp.name} style={{
+                        padding: "10px 14px",
+                        borderBottom: idx < week.employees.length - 1 ? "1px solid var(--border)" : "none",
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontWeight: 500, fontSize: 13 }}>{emp.name}</span>
+                          <Badge pos={emp.position}>{emp.position}</Badge>
+                        </div>
+                        <span style={{ fontFamily: "var(--font-mono)", color: "var(--yellow)", fontWeight: 600, fontSize: 13 }}>
+                          {fmt(emp.weeklyTips)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    <TableHeader cols={["Employee", "Position", "Weekly Tips"]} />
+                    {week.employees.map((emp, idx) => (
+                      <TableRow key={emp.name} cols={3} last={idx === week.employees.length - 1} cells={[
+                        <Name>{emp.name}</Name>,
+                        <Badge pos={emp.position}>{emp.position}</Badge>,
+                        <Mono yellow bold>{fmt(emp.weeklyTips)}</Mono>,
+                      ]} />
+                    ))}
+                    <TotalFooter items={[
+                      { label: "Week Total", value: fmt(weekTotal), color: "var(--yellow)", bold: true },
+                    ]} />
+                  </>
+                )}
+              </Panel>
+            );
+          })}
         </div>
       )}
 
