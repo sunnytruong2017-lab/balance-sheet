@@ -153,7 +153,8 @@ export default function PayrollPanel() {
   function buildBiweeklyPayroll() {
     const { start, end } = selectedPeriod;
     return allEmployeeNames.map((name) => {
-      // Collect hours broken down by role from daily blocks
+      // Collect hours broken down by role from daily blocks.
+      // For merged employees, use roleHours map; for single-role use position.
       const hoursByRole = {}; // { FOH: x, BOH: y }
       const daysWorked  = [];
 
@@ -161,11 +162,20 @@ export default function PayrollPanel() {
         for (const day of sheetData.dailyBlocks) {
           if (day.date < start || day.date > end) continue;
           const emp = day.employees.find((e) => e.name === name);
-          if (emp && emp.hours > 0) {
+          if (!emp || emp.hours === 0) continue;
+
+          if (emp.roleHours) {
+            // Dual-role employee — split hours by role
+            Object.entries(emp.roleHours).forEach(([role, hrs]) => {
+              if (hrs > 0) {
+                hoursByRole[role] = (hoursByRole[role] || 0) + hrs;
+              }
+            });
+          } else {
             const role = normalizeRole(emp.position);
             hoursByRole[role] = (hoursByRole[role] || 0) + emp.hours;
-            daysWorked.push({ date: day.date, dayName: day.dayName, hours: emp.hours, role });
           }
+          daysWorked.push({ date: day.date, dayName: day.dayName, hours: emp.hours });
         }
       }
 
@@ -602,12 +612,21 @@ export default function PayrollPanel() {
           />
           {allEmployeeNames.length === 0 ? <Empty text="No employees found in Google Sheet" /> : (
             allEmployeeNames.map((emp, i) => {
-              // Detect which roles this employee has worked across both sheets
+              // Detect which roles this employee has worked across both sheets.
+              // For dual-role employees, roleHours contains { FOH: x, BOH: y }.
               const empRoles = new Set();
               for (const sheetData of [current, past]) {
                 for (const day of sheetData.dailyBlocks) {
                   const found = day.employees.find((e) => e.name === emp);
-                  if (found?.hours > 0) empRoles.add(normalizeRole(found.position));
+                  if (!found) continue;
+                  if (found.roleHours) {
+                    // Dual-role employee — add each role that has hours
+                    Object.entries(found.roleHours).forEach(([role, hrs]) => {
+                      if (hrs > 0) empRoles.add(role);
+                    });
+                  } else if (found.hours > 0) {
+                    empRoles.add(normalizeRole(found.position));
+                  }
                 }
               }
               // Always show at least their primary role from weekly summary
