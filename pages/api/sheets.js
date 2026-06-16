@@ -57,11 +57,15 @@ function classifyRow(row) {
   if (b === "Tip Payouts" ||
       b === "Payment Received")                    return "ignore";
   if (b === "Pooled Credit Card Tips" ||
-      b === "Card Tips" ||
+      b === "Pooled CC Tips"           ||
+      b === "Card Tips"                ||
       c  === "Pooled Credit Card Tips" ||
+      c  === "Pooled CC Tips"          ||
       c  === "Card Tips")                          return "pool_header";
   // Day-name row immediately after a pool header
   if (/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/i.test(b)) return "day_name";
+  // FOH/BOH tip rate labels — ignore
+  if (b === "FOH Tips" || b === "BOH Tips")       return "ignore";
 
   return null; // skip anything else (banners, notes, error checkers…)
 }
@@ -140,7 +144,7 @@ function parseSheet(rows) {
       let hoursRow_    = null;
       let weeklyTipsRow_ = null;
 
-      for (let j = i + 1; j < Math.min(i + 12, rows.length); j++) {
+      for (let j = i + 1; j < Math.min(i + 16, rows.length); j++) {
         const r   = rows[j] || [];
         const rtag = classifyRow(r);
         if (isNamesRow(r)           && !namesRow_)      namesRow_      = r;
@@ -199,30 +203,34 @@ function parseSheet(rows) {
       let valRow_      = null; // day-name row (holds pool dollar values)
       let blockEnd     = i + 1;
 
-      for (let j = i + 1; j < Math.min(i + 20, rows.length); j++) {
-        const r   = rows[j] || [];
+      for (let j = i + 1; j < Math.min(i + 24, rows.length); j++) {
+        const r    = rows[j] || [];
         const rtag = classifyRow(r);
 
-        if (!valRow_  && rtag === "day_name") { valRow_ = r; dayName = (r[1] ?? "").toString().trim(); }
-        else if (!namesRow_  && isNamesRow(r))         namesRow_  = r;
-        else if (!posRow_    && rtag === "position")  posRow_    = r;
-        else if (!hoursRow_  && rtag === "hours")     hoursRow_  = r;
-        else if (!ccRow_     && rtag === "cc_tips") {
-          ccRow_ = hasNumericData(r) ? r : (rows[j + 1] || []);
-          if (!hasNumericData(r)) j++; // consumed next row
-        }
-        else if (!cashRow_   && rtag === "cash_tips") {
-          cashRow_ = hasNumericData(r) ? r : (rows[j + 1] || []);
-          if (!hasNumericData(r)) j++;
-        }
-        else if (!totalRow_  && rtag === "total_tips") {
-          totalRow_ = r;
-          blockEnd  = j + 1;
+        // Stop if we hit the next block
+        if (rtag === "pool_header" || rtag === "week_label") {
+          blockEnd = j;
           break;
         }
-        else if (rtag === "pool_header" || rtag === "week_label") {
-          // Hit the next block — stop
-          blockEnd = j;
+
+        // Collect each labelled row independently (no else-if — a row matches at most one)
+        if (!valRow_   && rtag === "day_name")  { valRow_  = r; dayName = (r[1] ?? "").toString().trim(); continue; }
+        if (!namesRow_ && isNamesRow(r))         { namesRow_ = r; continue; }
+        if (!posRow_   && rtag === "position")   { posRow_   = r; continue; }
+        if (!hoursRow_ && rtag === "hours")      { hoursRow_ = r; continue; }
+        if (!ccRow_    && rtag === "cc_tips") {
+          ccRow_ = hasNumericData(r) ? r : (rows[j + 1] || []);
+          if (!hasNumericData(r)) j++;
+          continue;
+        }
+        if (!cashRow_  && rtag === "cash_tips") {
+          cashRow_ = hasNumericData(r) ? r : (rows[j + 1] || []);
+          if (!hasNumericData(r)) j++;
+          continue;
+        }
+        if (!totalRow_ && rtag === "total_tips") {
+          totalRow_ = r;
+          blockEnd  = j + 1;
           break;
         }
       }
