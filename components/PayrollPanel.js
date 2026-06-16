@@ -579,16 +579,7 @@ export default function PayrollPanel() {
                     );
                   })}
                   {/* Daily totals row */}
-                  {(() => {
-                    const filtered = day.employees.filter((e) => e.hours > 0 || e.totalTips > 0);
-                    return filtered.length > 0 ? (
-                      <TotalFooter items={[
-                        { label: "Total CC Tips",   value: fmt(filtered.reduce((s, e) => s + (e.ccTips   || 0), 0)), color: "var(--text-muted)" },
-                        { label: "Total Cash Tips", value: fmt(filtered.reduce((s, e) => s + (e.cashTips || 0), 0)), color: "var(--text-muted)" },
-                        { label: "Day Total",       value: fmt(filtered.reduce((s, e) => s + (e.totalTips || 0), 0)), color: "var(--yellow)", bold: true },
-                      ]} />
-                    ) : null;
-                  })()}
+                  <DayTotalsFooter employees={day.employees} />
                 </>
               )}
             </Panel>
@@ -936,6 +927,21 @@ function TableRow({ cells, cols, last }) {
       style={{ display: "grid", gridTemplateColumns: `repeat(${cols || cells.length}, 1fr)`, padding: "11px 18px", borderBottom: last ? "none" : "1px solid var(--border)", background: hover ? "var(--surface2)" : "transparent", transition: "background 0.1s ease", alignItems: "center", fontSize: 13 }}>
       {cells.map((cell, i) => <div key={i}>{cell}</div>)}
     </div>
+  );
+}
+
+function DayTotalsFooter({ employees }) {
+  const filtered = employees.filter((e) => e.hours > 0 || e.totalTips > 0);
+  if (!filtered.length) return null;
+  const totalCC   = filtered.reduce((s, e) => s + (e.ccTips   || 0), 0);
+  const totalCash = filtered.reduce((s, e) => s + (e.cashTips || 0), 0);
+  const totalTips = filtered.reduce((s, e) => s + (e.totalTips || 0), 0);
+  return (
+    <TotalFooter items={[
+      { label: "Total CC Tips",   value: fmt(totalCC),   color: "var(--text-muted)" },
+      { label: "Total Cash Tips", value: fmt(totalCash), color: "var(--text-muted)" },
+      { label: "Day Total",       value: fmt(totalTips), color: "var(--yellow)", bold: true },
+    ]} />
   );
 }
 
