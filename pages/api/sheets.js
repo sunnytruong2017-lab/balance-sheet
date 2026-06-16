@@ -8,12 +8,11 @@ export default async function handler(req, res) {
 
   try {
     const sheetDefs = [
-      { key: "current", range: "Tips [Current Week]!A1:Z200" },
-      { key: "past",    range: "Tips [Past Weeks]!A1:Z500"  },
+      { key: "current", range: "Tips [Current Week]!A1:Z300" },
+      { key: "past",    range: "Tips [Past Weeks]!A1:Z600"  },
     ];
 
     const results = {};
-
     for (const sheet of sheetDefs) {
       const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(
         sheet.range
@@ -25,7 +24,6 @@ export default async function handler(req, res) {
         results[sheet.key] = { error: err.error?.message || "Failed to fetch" };
         continue;
       }
-
       const data = await response.json();
       results[sheet.key] = parseSheet(data.values || []);
     }
@@ -37,60 +35,81 @@ export default async function handler(req, res) {
   }
 }
 
-/**
- * Build an employee map from a names row.
- * Returns an array of { name, cols: [idx, ...] } where cols contains ALL
- * column indices belonging to that employee (handles merged multi-column names).
- *
- * Example: if row has [..., "Sunny", "", "Cà", ...] at indices [4,5,6,...]
- *   → Sunny gets cols [4, 5], Cà gets cols [6]
- *
- * A blank cell immediately after a named employee cell is treated as a
- * continuation of that employee's merged column group.
- */
+// ── Row classifier ────────────────────────────────────────────────────────
+// Identifies each row by what's in col B (index 1).
+// Returns one of these tags, or null if the row should be skipped.
+
+function classifyRow(row) {
+  const b = (row[1] ?? "").toString().trim();
+  const c = row[2];
+
+  if (!b && !c) return null;                                          // blank
+
+  if (b.startsWith("Week "))                      return "week_label";
+  if (b === "Position")                            return "position";
+  if (b === "Hours Worked" ||
+      b === "Total Hours Worked")                  return "hours";
+  if (b.startsWith("Credit Card"))                 return "cc_tips";
+  if (b.startsWith("Cash Tips"))                   return "cash_tips";
+  if (b === "Total Tips Allocated" ||
+      b.startsWith("Tips Portioned"))              return "total_tips";
+  if (b === "Weekly Tips")                         return "weekly_tips";
+  if (b === "Tip Payouts" ||
+      b === "Payment Received")                    return "ignore";
+  if (b === "Pooled Credit Card Tips" ||
+      b === "Card Tips" ||
+      c  === "Pooled Credit Card Tips" ||
+      c  === "Card Tips")                          return "pool_header";
+  // Day-name row immediately after a pool header
+  if (/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/i.test(b)) return "day_name";
+
+  // Names row: col B is empty, col C is a short non-label string
+  if ((b === "" || b === null) &&
+      typeof c === "string" && c.trim().length > 0 &&
+      c.trim().length <= 40 &&
+      !c.includes(":") &&
+      !(c === c.toUpperCase() && c.trim().length > 6))               return "names";
+
+  return null; // skip anything else (banners, notes, error checkers…)
+}
+
+// ── Employee column discovery ─────────────────────────────────────────────
+// Scans a names row. Adjacent blank columns are treated as the second column
+// of a merged employee cell (e.g. Sunny spans E+F, My spans I+J).
+
 function getEmployees(nameRow) {
   const employees = [];
   let current = null;
 
   for (let i = 2; i < nameRow.length; i++) {
-    const val = nameRow[i];
-    const isName = val && typeof val === "string" && val.trim().length > 0;
+    const val    = nameRow[i];
+    const isName = val && typeof val === "string" && val.trim().length > 0
+                   && val.trim().length <= 40
+                   && !val.includes(":")
+                   && !(val.trim() === val.trim().toUpperCase() && val.trim().length > 6);
     const isEmpty = !val || val === "";
 
     if (isName) {
-      // Start a new employee
       current = { name: val.trim(), cols: [i] };
       employees.push(current);
-    } else if (isEmpty && current) {
-      // Check if the NEXT cell also has a name — if so, this blank is a spacer
-      // between two employees, not a continuation. Heuristic: if we've already
-      // seen another blank for this employee, stop extending.
-      // Simple rule: extend current employee by at most 1 blank column.
-      if (current.cols.length === 1) {
-        current.cols.push(i);
-      } else {
-        // More than one blank after a name = spacer between employees, stop
-        current = null;
-      }
+    } else if (isEmpty && current && current.cols.length === 1) {
+      current.cols.push(i); // merge second column
+    } else {
+      current = null;       // spacer — reset
     }
   }
-
   return employees;
 }
 
-/**
- * Sum a set of column indices from a row, treating each as a number.
- */
 function sumCols(row, cols) {
   return cols.reduce((s, col) => s + toNum((row || [])[col]), 0);
 }
 
-/**
- * Returns true if a row has at least one numeric value > 0 in cols 2+.
- */
 function hasNumericData(row) {
   return (row || []).slice(2).some((v) => typeof v === "number" && v > 0);
 }
+
+// ── Main parser ───────────────────────────────────────────────────────────
 
 function parseSheet(rows) {
   const dailyBlocks   = [];
@@ -101,133 +120,119 @@ function parseSheet(rows) {
 
   let i = 0;
   while (i < rows.length) {
-    const row  = rows[i] || [];
-    const colB = row[1];
-    const colC = row[2];
+    const row = rows[i] || [];
+    const tag = classifyRow(row);
 
     // ── Weekly summary block ──────────────────────────────────────────
-    if (typeof colB === "string" && colB.startsWith("Week ")) {
-      weekLabel = colB;
+    if (tag === "week_label") {
+      weekLabel = (row[1] ?? "").toString().trim();
 
-      const nameRow = row;
+      // Scan forward by label until we find names + weekly_tips
+      let namesRow_    = null;
+      let posRow_      = null;
+      let hoursRow_    = null;
+      let weeklyTipsRow_ = null;
 
-      // Scan forward by label — don't use fixed offsets since the block may
-      // have extra rows (Total Hours Worked) between Position and Weekly Tips.
-      let posRow  = null;
-      let tipsRow = null;
-      let blockEnd = i + 1;
-
-      for (let j = i + 1; j < Math.min(i + 8, rows.length); j++) {
-        const r = rows[j] || [];
-        const b = r[1];
-
-        if (!posRow && typeof b === "string" && b === "Position") {
-          posRow = r;
-        } else if (!tipsRow && typeof b === "string" && b.startsWith("Weekly Tips")) {
-          // Weekly Tips may also be a merged cell — check if values are on
-          // this row or the next
-          if (hasNumericData(r)) {
-            tipsRow = r;
-          } else {
-            const nextRow = rows[j + 1] || [];
-            tipsRow = hasNumericData(nextRow) ? nextRow : r;
-          }
-          blockEnd = j + 2;
+      for (let j = i + 1; j < Math.min(i + 12, rows.length); j++) {
+        const r   = rows[j] || [];
+        const rtag = classifyRow(r);
+        if (rtag === "names"        && !namesRow_)      namesRow_      = r;
+        if (rtag === "position"     && !posRow_)        posRow_        = r;
+        if (rtag === "hours"        && !hoursRow_)      hoursRow_      = r;
+        if (rtag === "weekly_tips"  && !weeklyTipsRow_) {
+          // Weekly Tips may be a merged cell — values might be on next row
+          weeklyTipsRow_ = hasNumericData(r) ? r : (rows[j + 1] || []);
           break;
         }
+        if (rtag === "ignore") break; // hit Tip Payouts row — done
       }
 
-      if (!posRow)  posRow  = rows[i + 1] || [];
-      if (!tipsRow) tipsRow = rows[i + 2] || [];
+      const nr = namesRow_ || [];
+      const pr = posRow_   || [];
+      const tr = weeklyTipsRow_ || [];
 
-      const empList = getEmployees(nameRow).map(({ name, cols }) => ({
+      const empList = getEmployees(nr).map(({ name, cols }) => ({
         name,
-        position:   (posRow[cols[0]] || ""),
-        weeklyTips: sumCols(tipsRow, cols),
+        position:   pr[cols[0]] || "",
+        weeklyTips: sumCols(tr, cols),
       }));
 
       employees       = empList;
       weeklyTipsTotal = empList.reduce((s, e) => s + e.weeklyTips, 0);
       empList.forEach((e) => { weeklyTips[e.name] = e.weeklyTips; });
-      i = blockEnd;
+
+      // Advance past this entire summary block
+      i++;
       continue;
     }
 
     // ── Daily block ───────────────────────────────────────────────────
-    if (colC === "Pooled Credit Card Tips" || colC === "Card Tips") {
-      const dateStr = formatDate(colB);
+    if (tag === "pool_header") {
+      const dateStr     = formatDate(row[1]);
+      const labelRow    = row; // contains "Total Tips" column header
 
-      // Row i   = label row  (colC="Pooled Credit Card Tips", colE="Total Tips")
-      // Row i+1 = values row (colB="Wednesday", colE=$97.25)
-      const labelRow = row;
-      const valRow   = rows[i + 1] || [];
-      const dayName  = valRow[1] || "";
-
-      // Find "Total Tips" column from label row, read value from values row
-      let totalTipsPool = 0;
+      // Find "Total Tips" column in label row
+      let totalTipsCol = -1;
       for (let k = 2; k < labelRow.length; k++) {
         if (typeof labelRow[k] === "string" &&
             labelRow[k].trim().toLowerCase() === "total tips") {
-          totalTipsPool = toNum(valRow[k]);
+          totalTipsCol = k;
           break;
         }
       }
 
-      // Scan forward from i+2 for inner data rows
-      let nameRow  = null;
-      let posRow   = null;
-      let hoursRow = null;
-      let ccRow    = null;
-      let cashRow  = null;
-      let totalRow = null;
-      let blockEnd = i + 2;
+      // Scan forward collecting labelled rows
+      let dayName      = "";
+      let namesRow_    = null;
+      let posRow_      = null;
+      let hoursRow_    = null;
+      let ccRow_       = null;
+      let cashRow_     = null;
+      let totalRow_    = null;
+      let valRow_      = null; // day-name row (holds pool dollar values)
+      let blockEnd     = i + 1;
 
-      for (let j = i + 2; j < Math.min(i + 20, rows.length); j++) {
-        const r = rows[j] || [];
-        const b = r[1];
-        const c = r[2];
+      for (let j = i + 1; j < Math.min(i + 20, rows.length); j++) {
+        const r   = rows[j] || [];
+        const rtag = classifyRow(r);
 
-        if (!nameRow && (b === null || b === "") &&
-            typeof c === "string" && c.trim().length > 0) {
-          nameRow = r;
-
-        } else if (!posRow && b === "Position") {
-          posRow = r;
-
-        } else if (!hoursRow && b === "Hours Worked") {
-          hoursRow = r;
-
-        } else if (!ccRow && typeof b === "string" && b.startsWith("Credit Card")) {
-          // Merged cell — values are on the next row
-          const nextRow = rows[j + 1] || [];
-          if (hasNumericData(nextRow)) { ccRow = nextRow; j++; }
-          else if (hasNumericData(r))  { ccRow = r; }
-          else                         { ccRow = r; }
-
-        } else if (!cashRow && typeof b === "string" && b.startsWith("Cash Tips")) {
-          const nextRow = rows[j + 1] || [];
-          if (hasNumericData(nextRow)) { cashRow = nextRow; j++; }
-          else if (hasNumericData(r))  { cashRow = r; }
-          else                         { cashRow = r; }
-
-        } else if (!totalRow && typeof b === "string" &&
-                   (b.startsWith("Total Tips") || b.startsWith("Tips Portioned"))) {
-          totalRow = r;
-          blockEnd = j + 1;
+        if (!valRow_  && rtag === "day_name") { valRow_ = r; dayName = (r[1] ?? "").toString().trim(); }
+        else if (!namesRow_  && rtag === "names")     namesRow_  = r;
+        else if (!posRow_    && rtag === "position")  posRow_    = r;
+        else if (!hoursRow_  && rtag === "hours")     hoursRow_  = r;
+        else if (!ccRow_     && rtag === "cc_tips") {
+          ccRow_ = hasNumericData(r) ? r : (rows[j + 1] || []);
+          if (!hasNumericData(r)) j++; // consumed next row
+        }
+        else if (!cashRow_   && rtag === "cash_tips") {
+          cashRow_ = hasNumericData(r) ? r : (rows[j + 1] || []);
+          if (!hasNumericData(r)) j++;
+        }
+        else if (!totalRow_  && rtag === "total_tips") {
+          totalRow_ = r;
+          blockEnd  = j + 1;
+          break;
+        }
+        else if (rtag === "pool_header" || rtag === "week_label") {
+          // Hit the next block — stop
+          blockEnd = j;
           break;
         }
       }
 
-      // Build employee list — summing across all columns for merged employees
-      const empDefs = nameRow ? getEmployees(nameRow) : [];
-      const nr = nameRow  || [];
-      const pr = posRow   || [];
-      const hr = hoursRow || [];
-      const cr = ccRow    || [];
-      const sr = cashRow  || [];
-      const tr = totalRow || [];
+      // Pool total from values row at the "Total Tips" column
+      const totalTipsPool = (valRow_ && totalTipsCol >= 0)
+        ? toNum(valRow_[totalTipsCol])
+        : 0;
 
-      const dayEmployees = empDefs.map(({ name, cols }) => ({
+      const empCols = namesRow_ ? getEmployees(namesRow_) : [];
+      const pr = posRow_   || [];
+      const hr = hoursRow_ || [];
+      const cr = ccRow_    || [];
+      const sr = cashRow_  || [];
+      const tr = totalRow_ || [];
+
+      const dayEmployees = empCols.map(({ name, cols }) => ({
         name,
         position:  pr[cols[0]] || "",
         hours:     sumCols(hr, cols),
@@ -236,7 +241,6 @@ function parseSheet(rows) {
         totalTips: sumCols(tr, cols),
       })).filter((e) => e.hours > 0 || e.totalTips > 0);
 
-      // Pool: use parsed value, fall back to summing employee totals
       const pool = totalTipsPool > 0
         ? totalTipsPool
         : dayEmployees.reduce((s, e) => s + e.totalTips, 0);
