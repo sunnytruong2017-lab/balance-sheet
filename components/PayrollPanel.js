@@ -216,6 +216,30 @@ export default function PayrollPanel() {
   const pastPayroll      = buildWeeklyPayroll(past);
   const allWeeks         = sheetsData?.past?.allWeeks || [];
 
+  // Build a map of dual-role employees: { name: Set(['FOH','BOH']) }
+  // Detected from daily blocks where roleHours contains multiple roles
+  const employeeRolesMap = {};
+  for (const sheetData of [current, past]) {
+    for (const day of sheetData.dailyBlocks) {
+      for (const emp of day.employees) {
+        if (!employeeRolesMap[emp.name]) employeeRolesMap[emp.name] = new Set();
+        if (emp.roleHours) {
+          Object.keys(emp.roleHours).forEach((r) => employeeRolesMap[emp.name].add(r));
+        } else {
+          employeeRolesMap[emp.name].add(normalizeRole(emp.position));
+        }
+      }
+    }
+  }
+  // Helper: render badges for an employee (one or two)
+  function EmployeeBadges({ name, position }) {
+    const roles = employeeRolesMap[name];
+    if (roles && roles.size > 1) {
+      return <>{[...roles].sort().map((r) => <Badge key={r} pos={r}>{r}</Badge>)}</>;
+    }
+    return <Badge pos={position}>{position}</Badge>;
+  }
+
   const totalBiweeklyWages = biweeklyPayroll.reduce((s, e) => s + e.grossPay, 0);
   const totalCurrentTips   = current.weeklyTipsTotal || 0;
   const totalPastTips      = past.weeklyTipsTotal    || 0;
@@ -406,7 +430,7 @@ export default function PayrollPanel() {
                   return (
                     <TableRow key={emp.name} cols={7} last={i === currentPayroll.length - 1} cells={[
                       <Name>{emp.name}</Name>,
-                      <Badge pos={emp.position}>{emp.position}</Badge>,
+                      <EmployeeBadges name={emp.name} position={emp.position} />,
                       <Mono muted>{emp.hours.toFixed(2)} hrs</Mono>,
                       <Mono muted>{fmt(ccTips)}</Mono>,
                       <Mono muted>{fmt(cashTips)}</Mono>,
@@ -446,7 +470,7 @@ export default function PayrollPanel() {
                   const sk     = `${wk}::${emp.name}`;
                   return (
                     <EmployeeCard key={emp.name} emp={emp} last={i === pastPayroll.length - 1}
-                      payout={payout} saving={!!payoutSaving[sk]}
+                      payout={payout} saving={!!payoutSaving[sk]} employeeRolesMap={employeeRolesMap}
                       onTogglePayout={() => togglePayout(emp.name, wk, emp.weeklyTips, payout.paid)} />
                   );
                 })}
@@ -466,7 +490,7 @@ export default function PayrollPanel() {
                   return (
                     <TableRow key={emp.name} cols={7} last={i === pastPayroll.length - 1} cells={[
                       <Name>{emp.name}</Name>,
-                      <Badge pos={emp.position}>{emp.position}</Badge>,
+                      <EmployeeBadges name={emp.name} position={emp.position} />,
                       <Mono muted>{emp.hours.toFixed(2)} hrs</Mono>,
                       <Mono muted>{fmt(ccTips)}</Mono>,
                       <Mono muted>{fmt(cashTips)}</Mono>,
@@ -513,7 +537,7 @@ export default function PayrollPanel() {
                     const sk     = `${wk}::${emp.name}`;
                     return (
                       <DailyEmployeeCard key={emp.name} emp={emp} last={i === arr.length - 1}
-                        payout={payout} saving={!!payoutSaving[sk]}
+                        payout={payout} saving={!!payoutSaving[sk]} employeeRolesMap={employeeRolesMap}
                         onTogglePayout={() => togglePayout(emp.name, wk, emp.totalTips, payout.paid)} />
                     );
                   })}
@@ -528,7 +552,7 @@ export default function PayrollPanel() {
                     return (
                       <TableRow key={emp.name} cols={7} last={i === arr.length - 1} cells={[
                         <Name>{emp.name}</Name>,
-                        <Badge pos={emp.position}>{emp.position}</Badge>,
+                        <EmployeeBadges name={emp.name} position={emp.position} />,
                         <Mono muted>{emp.hours.toFixed(2)} hrs</Mono>,
                         <Mono muted>{fmt(emp.ccTips)}</Mono>,
                         <Mono muted>{fmt(emp.cashTips)}</Mono>,
@@ -574,7 +598,7 @@ export default function PayrollPanel() {
                       }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontWeight: 500, fontSize: 13 }}>{emp.name}</span>
-                          <Badge pos={emp.position}>{emp.position}</Badge>
+                          <EmployeeBadges name={emp.name} position={emp.position} />
                         </div>
                         <span style={{ fontFamily: "var(--font-mono)", color: "var(--yellow)", fontWeight: 600, fontSize: 13 }}>
                           {fmt(emp.weeklyTips)}
@@ -588,7 +612,7 @@ export default function PayrollPanel() {
                     {week.employees.map((emp, idx) => (
                       <TableRow key={emp.name} cols={3} last={idx === week.employees.length - 1} cells={[
                         <Name>{emp.name}</Name>,
-                        <Badge pos={emp.position}>{emp.position}</Badge>,
+                        <EmployeeBadges name={emp.name} position={emp.position} />,
                         <Mono yellow bold>{fmt(emp.weeklyTips)}</Mono>,
                       ]} />
                     ))}
@@ -726,13 +750,16 @@ function BiweeklyEmployeeCard({ emp, last }) {
   );
 }
 
-function EmployeeCard({ emp, last, payout, saving, onTogglePayout }) {
+function EmployeeCard({ emp, last, payout, saving, onTogglePayout, employeeRolesMap }) {
   return (
     <div style={{ padding: "14px 14px", borderBottom: last ? "none" : "1px solid var(--border)" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontWeight: 600, fontSize: 14 }}>{emp.name}</span>
-          <Badge pos={emp.position}>{emp.position}</Badge>
+          {employeeRolesMap?.[emp.name]?.size > 1
+            ? [...(employeeRolesMap[emp.name])].sort().map((r) => <Badge key={r} pos={r}>{r}</Badge>)
+            : <Badge pos={emp.position}>{emp.position}</Badge>
+          }
         </div>
         <PayoutButton paid={payout.paid} saving={saving} onToggle={onTogglePayout} />
       </div>
@@ -744,13 +771,16 @@ function EmployeeCard({ emp, last, payout, saving, onTogglePayout }) {
   );
 }
 
-function DailyEmployeeCard({ emp, last, payout, saving, onTogglePayout }) {
+function DailyEmployeeCard({ emp, last, payout, saving, onTogglePayout, employeeRolesMap }) {
   return (
     <div style={{ padding: "12px 14px", borderBottom: last ? "none" : "1px solid var(--border)" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span style={{ fontWeight: 600, fontSize: 13 }}>{emp.name}</span>
-          <Badge pos={emp.position}>{emp.position}</Badge>
+          {employeeRolesMap?.[emp.name]?.size > 1
+            ? [...(employeeRolesMap[emp.name])].sort().map((r) => <Badge key={r} pos={r}>{r}</Badge>)
+            : <Badge pos={emp.position}>{emp.position}</Badge>
+          }
         </div>
         <PayoutButton paid={payout.paid} saving={saving} onToggle={onTogglePayout} />
       </div>
