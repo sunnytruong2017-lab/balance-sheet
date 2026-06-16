@@ -9,8 +9,10 @@ import AnalyticsPanel from "../components/AnalyticsPanel";
 import MobileLayout from "../components/MobileLayout";
 import { useIsMobile } from "../lib/useIsMobile";
 import ExportPanel from "../components/ExportPanel";
+import ManagerGate, { useManagerAuth } from "../components/ManagerGate";
 
 const tabs = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Payroll", "Export"];
+const MANAGER_TABS = new Set(["Startup", "Analytics", "Payroll", "Export"]);
 
 // Default built-in categories per tab (always shown, cannot be deleted)
 const DEFAULT_EXPENSE_CATEGORIES = {
@@ -35,6 +37,8 @@ function fmt(n) {
 export default function Home() {
   const { theme, toggle } = useTheme();
   const isMobile = useIsMobile();
+  const { authed: managerAuthed, login: managerLogin, logout: managerLogout } = useManagerAuth();
+  const [pendingTab, setPendingTab] = useState(null); // tab waiting for auth
   const [activeTab, setActiveTab]         = useState("Daily");
   const [modal, setModal]                 = useState(null);
   const [expenses, setExpenses]           = useState([]);
@@ -180,8 +184,16 @@ export default function Home() {
   }
 
   // Shared props for both layouts
+  function handleTabClick(tab) {
+    if (MANAGER_TABS.has(tab) && !managerAuthed) {
+      setPendingTab(tab);
+    } else {
+      setActiveTab(tab);
+    }
+  }
+
   const sharedProps = {
-    activeTab, setActiveTab,
+    activeTab, setActiveTab: handleTabClick,
     expenses, income, loading,
     referenceDate, periodLabel, shiftDate,
     onAddExpense:   () => setModal({ type: "expense" }),
@@ -192,6 +204,7 @@ export default function Home() {
     onDeleteIncome:  (id) => handleDelete("income",   id),
     totalIncome, totalExpenses, net,
     theme, toggleTheme: toggle,
+    managerAuthed, managerLogout,
   };
 
   if (isMobile) {
@@ -241,6 +254,15 @@ export default function Home() {
                 {format(new Date(), "EEE, MMM d")}
               </span>
               <ThemeToggle theme={theme} onToggle={toggle} />
+              {managerAuthed ? (
+                <ManagerBadge onLogout={() => {
+                  managerLogout();
+                  // If on a restricted tab, go back to Daily
+                  if (MANAGER_TABS.has(activeTab)) setActiveTab("Daily");
+                }} />
+              ) : (
+                <ManagerLoginBtn onLogin={() => setPendingTab("__login__")} />
+              )}
             </div>
           </div>
         </div>
@@ -250,18 +272,32 @@ export default function Home() {
         )}
 
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px", display: "flex", gap: 4 }}>
-          {tabs.map((tab) => (
-            <button key={tab} onClick={() => setActiveTab(tab)} style={{
-              padding: "10px 16px", fontSize: 13,
-              fontWeight: activeTab === tab ? 600 : 400,
-              color: activeTab === tab ? "var(--text)" : "var(--text-muted)",
-              borderBottom: `2px solid ${activeTab === tab ? "var(--accent)" : "transparent"}`,
-              transition: "all 0.15s ease",
-              background: "none", border: "none",
-              borderBottom: `2px solid ${activeTab === tab ? "var(--accent)" : "transparent"}`,
-              cursor: "pointer",
-            }}>{tab}</button>
-          ))}
+          {tabs.map((tab) => {
+            const isRestricted = MANAGER_TABS.has(tab) && !managerAuthed;
+            return (
+              <button key={tab} onClick={() => handleTabClick(tab)} style={{
+                padding: "10px 16px", fontSize: 13,
+                fontWeight: activeTab === tab ? 600 : 400,
+                color: activeTab === tab ? "var(--text)" : isRestricted ? "var(--text-dim)" : "var(--text-muted)",
+                borderBottom: `2px solid ${activeTab === tab ? "var(--accent)" : "transparent"}`,
+                transition: "all 0.15s ease",
+                background: "none", border: "none",
+                borderBottom: `2px solid ${activeTab === tab ? "var(--accent)" : "transparent"}`,
+                cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 5,
+              }}>
+                {tab}
+                {isRestricted && (
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                    style={{ opacity: 0.5 }}>
+                    <rect x="3" y="11" width="18" height="11" rx="2"/>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                  </svg>
+                )}
+              </button>
+            );
+          })}
         </div>
       </header>
 
@@ -349,10 +385,18 @@ export default function Home() {
           onClose={() => setModal(null)}
         />
       )}
+
+      {/* Manager auth gate */}
+      {pendingTab && (
+        <ManagerGate
+          tabName={pendingTab}
+          onSuccess={() => { if (pendingTab !== '__login__') setActiveTab(pendingTab); setPendingTab(null); }}
+          onCancel={() => setPendingTab(null)}
+        />
+      )}
     </div>
   );
 }
-
 function NavBtn({ onClick, children }) {
   const [hover, setHover] = useState(false);
   return (
@@ -367,7 +411,6 @@ function NavBtn({ onClick, children }) {
       }}>{children}</button>
   );
 }
-
 function ActionBtn({ onClick, color, label }) {
   const [hover, setHover] = useState(false);
   return (
@@ -382,11 +425,62 @@ function ActionBtn({ onClick, color, label }) {
       }}>{label}</button>
   );
 }
+function ManagerBadge({ onLogout }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <span style={{
+        fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: 20,
+        background: "var(--accent-dim)", color: "var(--accent)",
+        border: "1px solid var(--accent-glow)", letterSpacing: "0.05em",
+        textTransform: "uppercase",
+      }}>Manager</span>
+      <button
+        onClick={onLogout}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        title="Sign out of manager view"
+        style={{
+          padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 500,
+          background: hover ? "var(--red-dim)" : "var(--surface2)",
+          color: hover ? "var(--red)" : "var(--text-dim)",
+          border: `1px solid ${hover ? "rgba(245,101,101,0.3)" : "var(--border)"}`,
+          cursor: "pointer", transition: "all 0.15s ease",
+        }}
+      >Sign out</button>
+    </div>
+  );
+}
+
+function ManagerLoginBtn({ onLogin }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onLogin}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title="Sign in as manager"
+      style={{
+        display: "flex", alignItems: "center", gap: 5,
+        padding: "5px 11px", borderRadius: 6, fontSize: 11, fontWeight: 500,
+        background: hover ? "var(--surface2)" : "transparent",
+        color: hover ? "var(--text-muted)" : "var(--text-dim)",
+        border: `1px solid ${hover ? "var(--border)" : "transparent"}`,
+        cursor: "pointer", transition: "all 0.15s ease",
+      }}
+    >
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+      </svg>
+      Manager
+    </button>
+  );
+}
+
 
 function ThemeToggle({ theme, onToggle }) {
   const isDark = theme === "dark";
   const [hover, setHover] = useState(false);
-
   return (
     <button
       onClick={onToggle}
