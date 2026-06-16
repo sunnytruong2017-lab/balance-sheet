@@ -187,11 +187,11 @@ export default function PayrollPanel() {
   const totalPastTips      = past.weeklyTipsTotal    || 0;
 
   const subViews = [
-    { id: "wages_biweekly", label: isMobile ? "Wages"    : "Biweekly Wages",     desc: "Hours × hourly rate for the selected pay period" },
     { id: "tips_current",   label: isMobile ? "This Wk" : "This Week's Tips",    desc: `${current.weekLabel || "Current week"} — weekly tip totals` },
-    { id: "tips_past",      label: isMobile ? "Last Wk" : "Last Week's Tips",    desc: `${past.weekLabel || "Past week"} — weekly tip totals` },
     { id: "tips_daily",     label: isMobile ? "Daily"   : "Daily Tip Breakdown", desc: "Per-day tip amounts pulled from Google Sheets" },
+    { id: "tips_past",      label: isMobile ? "Last Wk" : "Last Week's Tips",    desc: `${past.weekLabel || "Past week"} — weekly tip totals` },
     { id: "history",        label: isMobile ? "History" : "Tips History",         desc: "All past weeks tip totals" },
+    { id: "wages_biweekly", label: isMobile ? "Wages"   : "Biweekly Wages",      desc: "Hours × hourly rate for the selected pay period" },
     { id: "wage_settings",  label: isMobile ? "Settings": "Hourly Rate Settings", desc: "Set each employee's hourly rate" },
   ];
 
@@ -360,7 +360,7 @@ export default function PayrollPanel() {
             )
           ) : (
             <>
-              <TableHeader cols={["Employee", "Position", "Hours This Week", "Rate / hr", "CC Tips", "Cash Tips", "Total Weekly Tips", "Tips Paid Out?"]} />
+              <TableHeader cols={["Employee", "Position", "Hours This Week", "CC Tips", "Cash Tips", "Total Weekly Tips", "Tips Paid Out?"]} />
               {currentPayroll.length === 0 ? <Empty text="No data in current week sheet" /> : (
                 currentPayroll.map((emp, i) => {
                   const wk     = makeWeekKey("current", current.weekLabel || "current");
@@ -370,11 +370,10 @@ export default function PayrollPanel() {
                   const ccTips   = current.dailyBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.ccTips   || 0), 0);
                   const cashTips = current.dailyBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.cashTips || 0), 0);
                   return (
-                    <TableRow key={emp.name} cols={8} last={i === currentPayroll.length - 1} cells={[
+                    <TableRow key={emp.name} cols={7} last={i === currentPayroll.length - 1} cells={[
                       <Name>{emp.name}</Name>,
                       <Badge pos={emp.position}>{emp.position}</Badge>,
                       <Mono muted>{emp.hours.toFixed(2)} hrs</Mono>,
-                      <Mono muted>{emp.rate ? fmt(emp.rate) : <Warn />}</Mono>,
                       <Mono muted>{fmt(ccTips)}</Mono>,
                       <Mono muted>{fmt(cashTips)}</Mono>,
                       <Mono yellow bold>{fmt(emp.weeklyTips)}</Mono>,
@@ -422,7 +421,7 @@ export default function PayrollPanel() {
             )
           ) : (
             <>
-              <TableHeader cols={["Employee", "Position", "Hours Last Week", "Rate / hr", "CC Tips", "Cash Tips", "Total Weekly Tips", "Tips Paid Out?"]} />
+              <TableHeader cols={["Employee", "Position", "Hours Last Week", "CC Tips", "Cash Tips", "Total Weekly Tips", "Tips Paid Out?"]} />
               {pastPayroll.length === 0 ? <Empty text="No data in past weeks sheet" /> : (
                 pastPayroll.map((emp, i) => {
                   const wk     = makeWeekKey("past", past.weekLabel || "past");
@@ -431,11 +430,10 @@ export default function PayrollPanel() {
                   const ccTips   = past.dailyBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.ccTips   || 0), 0);
                   const cashTips = past.dailyBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.cashTips || 0), 0);
                   return (
-                    <TableRow key={emp.name} cols={8} last={i === pastPayroll.length - 1} cells={[
+                    <TableRow key={emp.name} cols={7} last={i === pastPayroll.length - 1} cells={[
                       <Name>{emp.name}</Name>,
                       <Badge pos={emp.position}>{emp.position}</Badge>,
                       <Mono muted>{emp.hours.toFixed(2)} hrs</Mono>,
-                      <Mono muted>{emp.rate ? fmt(emp.rate) : <Warn />}</Mono>,
                       <Mono muted>{fmt(ccTips)}</Mono>,
                       <Mono muted>{fmt(cashTips)}</Mono>,
                       <Mono yellow bold>{fmt(emp.weeklyTips)}</Mono>,
@@ -648,9 +646,8 @@ function EmployeeCard({ emp, last, payout, saving, onTogglePayout }) {
         </div>
         <PayoutButton paid={payout.paid} saving={saving} onToggle={onTogglePayout} />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
         <MiniStat label="Hours This Wk" value={`${emp.hours.toFixed(1)}h`} />
-        <MiniStat label="Rate"          value={emp.rate ? `$${emp.rate}/h` : "—"} warn={!emp.rate} />
         <MiniStat label="Weekly Tips"   value={fmt(emp.weeklyTips)} color="var(--yellow)" />
       </div>
     </div>
