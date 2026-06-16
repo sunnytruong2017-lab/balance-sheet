@@ -2,6 +2,14 @@ import { useState, useEffect, useCallback } from "react";
 import { format, startOfMonth, endOfMonth, getDaysInMonth, parseISO } from "date-fns";
 import { useIsMobile } from "../lib/useIsMobile";
 
+// Normalize position strings to FOH or BOH
+function normalizeRole(pos) {
+  const p = String(pos).toLowerCase();
+  if (p.includes("foh") || p.includes("server")) return "FOH";
+  if (p.includes("boh") || p.includes("kitchen")) return "BOH";
+  return pos || "FOH";
+}
+
 const fmt = (n) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
 
@@ -65,7 +73,8 @@ export default function PayrollPanel() {
       if (wagesRes.ok) {
         const wd = await wagesRes.json();
         const wm = {};
-        wd.forEach((w) => { wm[w.employee] = w.hourlyRate; });
+        // Key: "Employee::Role" e.g. "Sunny::FOH", "Sunny::BOH"
+        wd.forEach((w) => { wm[`${w.employee}::${w.role}`] = w.hourlyRate; });
         setSavedWages(wm);
         setWages(wm);
       }
@@ -84,17 +93,18 @@ export default function PayrollPanel() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  async function saveWage(employee, rate) {
-    setSaving((s) => ({ ...s, [employee]: true }));
+  async function saveWage(employee, role, rate) {
+    const key = `${employee}::${role}`;
+    setSaving((s) => ({ ...s, [key]: true }));
     try {
       await fetch("/api/wages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employee, hourlyRate: parseFloat(rate) }),
+        body: JSON.stringify({ employee, role, hourlyRate: parseFloat(rate) }),
       });
-      setSavedWages((s) => ({ ...s, [employee]: parseFloat(rate) }));
+      setSavedWages((s) => ({ ...s, [key]: parseFloat(rate) }));
     } finally {
-      setSaving((s) => ({ ...s, [employee]: false }));
+      setSaving((s) => ({ ...s, [key]: false }));
     }
   }
 
@@ -138,31 +148,45 @@ export default function PayrollPanel() {
     ...past.employees.map((e) => e.name),
   ])].filter(Boolean).sort();
 
-  // Sum hours from all daily blocks across both sheets that fall within the selected period
+  // Sum hours from all daily blocks within the selected period.
+  // For dual-role employees, hours are split by position and each rate applied separately.
   function buildBiweeklyPayroll() {
     const { start, end } = selectedPeriod;
     return allEmployeeNames.map((name) => {
-      const rate = savedWages[name] || 0;
-      const pos  = current.employees.find((e) => e.name === name)?.position
-                || past.employees.find((e) => e.name === name)?.position || "";
+      // Collect hours broken down by role from daily blocks
+      const hoursByRole = {}; // { FOH: x, BOH: y }
+      const daysWorked  = [];
 
-      let hours = 0;
-      const daysWorked = [];
-
-      // Collect from both sheets' daily blocks, filtered by date range
       for (const sheetData of [current, past]) {
         for (const day of sheetData.dailyBlocks) {
           if (day.date < start || day.date > end) continue;
           const emp = day.employees.find((e) => e.name === name);
           if (emp && emp.hours > 0) {
-            hours += emp.hours;
-            daysWorked.push({ date: day.date, dayName: day.dayName, hours: emp.hours });
+            const role = normalizeRole(emp.position);
+            hoursByRole[role] = (hoursByRole[role] || 0) + emp.hours;
+            daysWorked.push({ date: day.date, dayName: day.dayName, hours: emp.hours, role });
           }
         }
       }
 
-      return { name, position: pos, rate, hours, grossPay: hours * rate, daysWorked };
-    }).filter((e) => e.hours > 0);
+      const totalHours = Object.values(hoursByRole).reduce((s, h) => s + h, 0);
+      if (totalHours === 0) return null;
+
+      // Calculate gross pay: each role's hours × its saved rate
+      let grossPay = 0;
+      const roleBreakdown = [];
+      for (const [role, hrs] of Object.entries(hoursByRole)) {
+        const rate = savedWages[`${name}::${role}`] || 0;
+        grossPay += hrs * rate;
+        roleBreakdown.push({ role, hours: hrs, rate, pay: hrs * rate });
+      }
+
+      // Primary position for display (most hours)
+      const primaryRole = Object.entries(hoursByRole).sort((a,b) => b[1]-a[1])[0]?.[0] || "";
+      const isDualRole  = Object.keys(hoursByRole).length > 1;
+
+      return { name, position: primaryRole, isDualRole, roleBreakdown, hours: totalHours, grossPay, daysWorked };
+    }).filter(Boolean);
   }
 
   // Build payroll for a single sheet (for the tips tabs)
@@ -310,7 +334,7 @@ export default function PayrollPanel() {
                 )
             ) : (
               <>
-                <TableHeader cols={["Employee", "Position", "Days Worked", "Total Hours", "Rate / hr", "Estimated Wages"]} />
+                <TableHeader cols={["Employee", "Position / Role", "Days Worked", "Hours", "Rate / hr", "Estimated Wages"]} />
                 {biweeklyPayroll.length === 0
                   ? <Empty text={`No hours logged between ${selectedPeriod.start} and ${selectedPeriod.end} in Google Sheets`} />
                   : biweeklyPayroll.map((emp, i) => (
@@ -574,42 +598,70 @@ export default function PayrollPanel() {
         <Panel>
           <PanelHeader
             title="Hourly Rate Settings"
-            hint="Set each employee's hourly rate. Rates are saved to Notion and used to calculate estimated biweekly wages."
+            hint="Set hourly rates per role. Employees with both FOH and BOH roles (like Sunny and My) have separate rates for each. Rates are saved to Notion."
           />
           {allEmployeeNames.length === 0 ? <Empty text="No employees found in Google Sheet" /> : (
-            allEmployeeNames.map((emp, i) => (
-              <div key={emp} style={{
-                padding: isMobile ? "12px 14px" : "14px 18px",
-                borderBottom: i < allEmployeeNames.length - 1 ? "1px solid var(--border)" : "none",
-                display: "flex", alignItems: "center", gap: 10,
-              }}>
-                <span style={{ flex: 1, fontWeight: 500, fontSize: isMobile ? 13 : 14 }}>{emp}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ color: "var(--text-dim)", fontSize: 13 }}>$</span>
-                  <input
-                    type="number" min="0" step="0.25"
-                    value={wages[emp] !== undefined ? wages[emp] : ""}
-                    onChange={(e) => setWages((w) => ({ ...w, [emp]: e.target.value }))}
-                    placeholder="0.00"
-                    style={{ width: isMobile ? 72 : 90, padding: "7px 8px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 7, color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 13 }}
-                  />
-                  <span style={{ fontSize: 11, color: "var(--text-dim)" }}>/hr</span>
-                  <button
-                    onClick={() => saveWage(emp, wages[emp] || 0)}
-                    disabled={saving[emp]}
-                    style={{
-                      padding: "7px 12px", borderRadius: 7,
-                      background: String(savedWages[emp]) === String(wages[emp]) ? "var(--surface2)" : "var(--accent)",
-                      color: String(savedWages[emp]) === String(wages[emp]) ? "var(--text-muted)" : "#000",
-                      fontSize: 12, fontWeight: 600, transition: "all 0.15s ease",
-                      opacity: saving[emp] ? 0.7 : 1, cursor: "pointer", border: "none",
-                    }}
-                  >
-                    {saving[emp] ? "…" : String(savedWages[emp]) === String(wages[emp]) ? "✓ Saved" : "Save"}
-                  </button>
+            allEmployeeNames.map((emp, i) => {
+              // Detect which roles this employee has worked across both sheets
+              const empRoles = new Set();
+              for (const sheetData of [current, past]) {
+                for (const day of sheetData.dailyBlocks) {
+                  const found = day.employees.find((e) => e.name === emp);
+                  if (found?.hours > 0) empRoles.add(normalizeRole(found.position));
+                }
+              }
+              // Always show at least their primary role from weekly summary
+              const primaryPos = current.employees.find((e) => e.name === emp)?.position
+                              || past.employees.find((e) => e.name === emp)?.position || "FOH";
+              if (empRoles.size === 0) empRoles.add(normalizeRole(primaryPos));
+
+              const roles = [...empRoles].sort(); // FOH before BOH alphabetically
+
+              return (
+                <div key={emp} style={{
+                  padding: isMobile ? "12px 14px" : "14px 18px",
+                  borderBottom: i < allEmployeeNames.length - 1 ? "1px solid var(--border)" : "none",
+                }}>
+                  {/* Employee name + role rate rows */}
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontWeight: 500, fontSize: isMobile ? 13 : 14, minWidth: 80, paddingTop: roles.length > 1 ? 8 : 0 }}>{emp}</span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+                      {roles.map((role) => {
+                        const key        = `${emp}::${role}`;
+                        const isSaved    = String(savedWages[key]) === String(wages[key]);
+                        return (
+                          <div key={role} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <Badge pos={role}>{role}</Badge>
+                            <span style={{ color: "var(--text-dim)", fontSize: 13 }}>$</span>
+                            <input
+                              type="number" min="0" step="0.25"
+                              value={wages[key] !== undefined ? wages[key] : ""}
+                              onChange={(e) => setWages((w) => ({ ...w, [key]: e.target.value }))}
+                              placeholder="0.00"
+                              style={{ width: isMobile ? 72 : 90, padding: "7px 8px", background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 7, color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 13 }}
+                            />
+                            <span style={{ fontSize: 11, color: "var(--text-dim)" }}>/hr</span>
+                            <button
+                              onClick={() => saveWage(emp, role, wages[key] || 0)}
+                              disabled={saving[key]}
+                              style={{
+                                padding: "7px 12px", borderRadius: 7,
+                                background: isSaved ? "var(--surface2)" : "var(--accent)",
+                                color: isSaved ? "var(--text-muted)" : "#000",
+                                fontSize: 12, fontWeight: 600, transition: "all 0.15s ease",
+                                opacity: saving[key] ? 0.7 : 1, cursor: "pointer", border: "none",
+                              }}
+                            >
+                              {saving[key] ? "…" : isSaved ? "✓" : "Save"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </Panel>
       )}
@@ -624,14 +676,33 @@ function BiweeklyEmployeeCard({ emp, last }) {
     <div style={{ padding: "14px 14px", borderBottom: last ? "none" : "1px solid var(--border)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
         <span style={{ fontWeight: 600, fontSize: 14 }}>{emp.name}</span>
-        <Badge pos={emp.position}>{emp.position}</Badge>
+        {emp.isDualRole
+          ? emp.roleBreakdown.map((rb) => <Badge key={rb.role} pos={rb.role}>{rb.role}</Badge>)
+          : <Badge pos={emp.position}>{emp.position}</Badge>
+        }
         <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: "auto" }}>{emp.daysWorked.length} day{emp.daysWorked.length !== 1 ? "s" : ""}</span>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
-        <MiniStat label="Total Hours"  value={`${emp.hours.toFixed(1)}h`} />
-        <MiniStat label="Rate"         value={emp.rate ? `$${emp.rate}/h` : "—"} warn={!emp.rate} />
-        <MiniStat label="Est. Wages"   value={emp.rate ? fmt(emp.grossPay) : "—"} color="var(--blue)" />
-      </div>
+      {emp.isDualRole ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {emp.roleBreakdown.map((rb) => (
+            <div key={rb.role} style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+              <MiniStat label={`${rb.role} Hrs`}  value={`${rb.hours.toFixed(1)}h`} />
+              <MiniStat label={`${rb.role} Rate`} value={rb.rate ? `$${rb.rate}/h` : "—"} warn={!rb.rate} />
+              <MiniStat label={`${rb.role} Pay`}  value={rb.rate ? fmt(rb.pay) : "—"} color="var(--blue)" />
+            </div>
+          ))}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6, marginTop: 2 }}>
+            <MiniStat label="Total Hours" value={`${emp.hours.toFixed(1)}h`} />
+            <MiniStat label="Est. Wages"  value={fmt(emp.grossPay)} color="var(--accent)" />
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6 }}>
+          <MiniStat label="Total Hours" value={`${emp.hours.toFixed(1)}h`} />
+          <MiniStat label="Rate"        value={emp.roleBreakdown[0]?.rate ? `$${emp.roleBreakdown[0].rate}/h` : "—"} warn={!emp.roleBreakdown[0]?.rate} />
+          <MiniStat label="Est. Wages"  value={emp.grossPay > 0 ? fmt(emp.grossPay) : "—"} color="var(--blue)" />
+        </div>
+      )}
     </div>
   );
 }
