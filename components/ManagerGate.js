@@ -1,13 +1,7 @@
-import { useState, useRef, useEffect, createContext, useContext } from "react";
+import { useState, useRef, useEffect } from "react";
+export { ManagerAuthContext, useManagerAuth } from "../lib/ManagerAuthContext";
 
 const MANAGER_PASSWORD = "9999";
-
-// ── Auth context — lives in _app.js, no sessionStorage needed ─────────────
-export const ManagerAuthContext = createContext({ authed: false, login: () => false, logout: () => {} });
-
-export function useManagerAuth() {
-  return useContext(ManagerAuthContext);
-}
 
 // ── Modal component ────────────────────────────────────────────────────────
 export default function ManagerGate({ onSuccess, onCancel, tabName }) {
