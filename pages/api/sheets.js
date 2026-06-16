@@ -123,7 +123,12 @@ function hasNumericData(row) {
 // ── Main parser ───────────────────────────────────────────────────────────
 
 function parseSheet(rows) {
-  const dailyBlocks   = [];
+  // allWeeks collects every Week XX summary block found in the sheet
+  const allWeeks    = [];
+  const dailyBlocks = [];
+
+  // These track the MOST RECENT week summary (first one found, since sheets
+  // are newest-first). They remain as the primary return values for compatibility.
   let weekLabel       = null;
   let employees       = [];
   let weeklyTips      = {};
@@ -136,30 +141,26 @@ function parseSheet(rows) {
 
     // ── Weekly summary block ──────────────────────────────────────────
     if (tag === "week_label") {
-      weekLabel = (row[1] ?? "").toString().trim();
+      const thisWeekLabel = (row[1] ?? "").toString().trim();
 
-      // Scan forward by label until we find names + weekly_tips
-      let namesRow_    = null;
-      let posRow_      = null;
-      let hoursRow_    = null;
+      let namesRow_      = null;
+      let posRow_        = null;
       let weeklyTipsRow_ = null;
 
       for (let j = i + 1; j < Math.min(i + 16, rows.length); j++) {
-        const r   = rows[j] || [];
+        const r    = rows[j] || [];
         const rtag = classifyRow(r);
         if (isNamesRow(r)           && !namesRow_)      namesRow_      = r;
         if (rtag === "position"     && !posRow_)        posRow_        = r;
-        if (rtag === "hours"        && !hoursRow_)      hoursRow_      = r;
         if (rtag === "weekly_tips"  && !weeklyTipsRow_) {
-          // Weekly Tips may be a merged cell — values might be on next row
           weeklyTipsRow_ = hasNumericData(r) ? r : (rows[j + 1] || []);
           break;
         }
-        if (rtag === "ignore") break; // hit Tip Payouts row — done
+        if (rtag === "ignore") break;
       }
 
-      const nr = namesRow_ || [];
-      const pr = posRow_   || [];
+      const nr = namesRow_      || [];
+      const pr = posRow_        || [];
       const tr = weeklyTipsRow_ || [];
 
       const empList = getEmployees(nr).map(({ name, cols }) => ({
@@ -168,11 +169,26 @@ function parseSheet(rows) {
         weeklyTips: sumCols(tr, cols),
       }));
 
-      employees       = empList;
-      weeklyTipsTotal = empList.reduce((s, e) => s + e.weeklyTips, 0);
-      empList.forEach((e) => { weeklyTips[e.name] = e.weeklyTips; });
+      const weekTipsTotal = empList.reduce((s, e) => s + e.weeklyTips, 0);
+      const weekTipsMap   = {};
+      empList.forEach((e) => { weekTipsMap[e.name] = e.weeklyTips; });
 
-      // Advance past this entire summary block
+      // Store in history
+      allWeeks.push({
+        weekLabel:       thisWeekLabel,
+        employees:       empList,
+        weeklyTipsTotal: weekTipsTotal,
+        weeklyTips:      weekTipsMap,
+      });
+
+      // First week found = most recent (newest-first ordering)
+      if (!weekLabel) {
+        weekLabel       = thisWeekLabel;
+        employees       = empList;
+        weeklyTipsTotal = weekTipsTotal;
+        weeklyTips      = weekTipsMap;
+      }
+
       i++;
       continue;
     }
@@ -271,7 +287,7 @@ function parseSheet(rows) {
     i++;
   }
 
-  return { weekLabel, employees, weeklyTipsTotal, weeklyTips, dailyBlocks };
+  return { weekLabel, employees, weeklyTipsTotal, weeklyTips, dailyBlocks, allWeeks };
 }
 
 function toNum(val) {
