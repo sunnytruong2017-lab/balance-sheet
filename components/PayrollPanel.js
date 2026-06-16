@@ -220,13 +220,10 @@ export default function PayrollPanel() {
 
   // past.dailyBlocks contains ALL historical days. To get just the most recent
   // week's data for "Last Week's Tips", filter to the 7 most recent dates only.
-  const pastMostRecentBlocks = (() => {
-    const blocks = past.dailyBlocks;
-    if (!blocks.length) return [];
-    // Sort by date desc, take the first 7 unique dates
-    const uniqueDates = [...new Set(blocks.map((b) => b.date))].sort().reverse().slice(0, 7);
-    return blocks.filter((b) => uniqueDates.includes(b.date));
-  })();
+  // Filter past.dailyBlocks to the 7 most recent dates only (avoids summing all history)
+  const _pastBlocks = past.dailyBlocks;
+  const _pastUniqueDates = [...new Set(_pastBlocks.map((b) => b.date))].sort().reverse().slice(0, 7);
+  const pastMostRecentBlocks = _pastBlocks.filter((b) => _pastUniqueDates.includes(b.date));
 
   // Build a map of dual-role employees: { name: Set(['FOH','BOH']) }
   // Detected from daily blocks where roleHours contains multiple roles
