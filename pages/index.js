@@ -204,7 +204,7 @@ export default function Home() {
     onDeleteIncome:  (id) => handleDelete("income",   id),
     totalIncome, totalExpenses, net,
     theme, toggleTheme: toggle,
-    managerAuthed, managerLogout,
+    managerAuthed, managerLogout, managerLogin,
   };
 
   if (isMobile) {
@@ -390,7 +390,11 @@ export default function Home() {
       {pendingTab && (
         <ManagerGate
           tabName={pendingTab}
-          onSuccess={() => { if (pendingTab !== '__login__') setActiveTab(pendingTab); setPendingTab(null); }}
+          onSuccess={() => {
+            managerLogin(); // called after gate validates password
+            if (pendingTab !== "__login__") setActiveTab(pendingTab);
+            setPendingTab(null);
+          }}
           onCancel={() => setPendingTab(null)}
         />
       )}
