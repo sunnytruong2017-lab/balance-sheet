@@ -3,7 +3,6 @@ const nextConfig = {
   reactStrictMode: true,
   webpack: (config, { isServer }) => {
     if (!isServer) {
-      // xlsx uses Node built-ins — never bundle it for the browser
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
@@ -15,8 +14,28 @@ const nextConfig = {
     }
     return config;
   },
-  // Tell Next.js to treat xlsx as a server-only external package
   serverExternalPackages: ["xlsx"],
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline'",
+              "style-src 'self' 'unsafe-inline'",
+              "img-src 'self' data: blob:",
+              "font-src 'self'",
+              "connect-src 'self' https://api.anthropic.com https://sheets.googleapis.com https://mcp.notion.com https://*.notion.com",
+              "frame-ancestors 'none'",
+            ].join("; "),
+          },
+        ],
+      },
+    ];
+  },
 };
 
 module.exports = nextConfig;
