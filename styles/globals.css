@@ -1,120 +1,174 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ── Dark theme (default) ─────────────────────────────── */
+/* ── Design tokens ────────────────────────────────────────── */
 :root {
-  --bg:           #0c0e14;
-  --surface:      #13151e;
-  --surface2:     #1a1d28;
-  --border:       #252836;
-  --border-light: #2e3245;
-  --text:         #e8eaf0;
-  --text-muted:   #6b7094;
-  --text-dim:     #4a4f6a;
-  --accent:       #4fd87a;
-  --accent-dim:   rgba(79, 216, 122, 0.12);
-  --accent-glow:  rgba(79, 216, 122, 0.25);
-  --red:          #f56565;
-  --red-dim:      rgba(245, 101, 101, 0.12);
-  --yellow:       #f6c90e;
-  --yellow-dim:   rgba(246, 201, 14, 0.12);
-  --blue:         #60a5fa;
-  --blue-dim:     rgba(96, 165, 250, 0.12);
-  --radius:       10px;
-  --radius-sm:    6px;
-  --font-mono:    'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
-  --shadow:       0 2px 12px rgba(0,0,0,0.4);
+  /* Surfaces */
+  --bg:           #0A0C10;
+  --surface:      #111318;
+  --surface2:     #1C1F27;
+  --surface3:     #232732;
+
+  /* Borders */
+  --border:       #252A36;
+  --border-light: #2E3347;
+  --border-focus: #3D4460;
+
+  /* Text */
+  --text:         #E8EBF2;
+  --text-muted:   #6B728F;
+  --text-dim:     #454B63;
+  --text-placeholder: #363C52;
+
+  /* Accent — warm gold */
+  --accent:       #D4A853;
+  --accent-dim:   rgba(212, 168, 83, 0.10);
+  --accent-glow:  rgba(212, 168, 83, 0.22);
+  --accent-text:  #D4A853;
+
+  /* Semantic */
+  --green:        #3DB87A;
+  --green-dim:    rgba(61, 184, 122, 0.10);
+  --green-glow:   rgba(61, 184, 122, 0.20);
+  --red:          #E05C5C;
+  --red-dim:      rgba(224, 92, 92, 0.10);
+  --red-glow:     rgba(224, 92, 92, 0.20);
+  --yellow:       #D4A853;
+  --yellow-dim:   rgba(212, 168, 83, 0.10);
+  --blue:         #5B8DEF;
+  --blue-dim:     rgba(91, 141, 239, 0.10);
+  --orange:       #E07B3A;
+  --orange-dim:   rgba(224, 123, 58, 0.10);
+
+  /* Typography */
+  --font-ui:   'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+
+  /* Type scale */
+  --text-xs:   11px;
+  --text-sm:   12px;
+  --text-base: 13px;
+  --text-md:   14px;
+  --text-lg:   15px;
+  --text-xl:   18px;
+  --text-2xl:  24px;
+
+  /* Spacing scale (4px base) */
+  --sp-1:  4px;
+  --sp-2:  8px;
+  --sp-3:  12px;
+  --sp-4:  16px;
+  --sp-5:  20px;
+  --sp-6:  24px;
+  --sp-8:  32px;
+  --sp-10: 40px;
+
+  /* Radii */
+  --radius-sm:  6px;
+  --radius:     10px;
+  --radius-lg:  14px;
+  --radius-xl:  18px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+  --shadow:    0 4px 16px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.3);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.4);
+
+  /* Transitions */
+  --ease:      cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out:  cubic-bezier(0, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* ── Light theme ──────────────────────────────────────── */
+/* ── Light theme ──────────────────────────────────────────── */
 [data-theme="light"] {
-  --bg:           #f5f6fa;
-  --surface:      #ffffff;
-  --surface2:     #f0f1f5;
-  --border:       #e2e4ec;
-  --border-light: #d0d3de;
-  --text:         #1a1d2e;
-  --text-muted:   #6b7094;
-  --text-dim:     #9ea3bb;
-  --accent:       #1d9e52;
-  --accent-dim:   rgba(29, 158, 82, 0.10);
-  --accent-glow:  rgba(29, 158, 82, 0.20);
-  --red:          #dc2626;
-  --red-dim:      rgba(220, 38, 38, 0.08);
-  --yellow:       #b45309;
-  --yellow-dim:   rgba(180, 83, 9, 0.10);
-  --blue:         #2563eb;
-  --blue-dim:     rgba(37, 99, 235, 0.10);
-  --shadow:       0 2px 12px rgba(0,0,0,0.08);
+  --bg:           #F2F3F7;
+  --surface:      #FFFFFF;
+  --surface2:     #ECEEF4;
+  --surface3:     #E4E6EE;
+  --border:       #DDE0EC;
+  --border-light: #CDD1E0;
+  --border-focus: #A8AECB;
+  --text:         #141722;
+  --text-muted:   #5A6180;
+  --text-dim:     #9199B8;
+  --text-placeholder: #B2B8CF;
+  --accent:       #B8882A;
+  --accent-dim:   rgba(184, 136, 42, 0.08);
+  --accent-glow:  rgba(184, 136, 42, 0.18);
+  --accent-text:  #8A6415;
+  --green:        #1E8A52;
+  --green-dim:    rgba(30, 138, 82, 0.08);
+  --red:          #C93535;
+  --red-dim:      rgba(201, 53, 53, 0.08);
+  --yellow:       #B8882A;
+  --yellow-dim:   rgba(184, 136, 42, 0.08);
+  --blue:         #2D5FD4;
+  --blue-dim:     rgba(45, 95, 212, 0.08);
+  --orange:       #C4581A;
+  --orange-dim:   rgba(196, 88, 26, 0.08);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.05);
+  --shadow:    0 4px 16px rgba(0,0,0,0.10), 0 2px 6px rgba(0,0,0,0.06);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.14), 0 4px 12px rgba(0,0,0,0.08);
 }
 
-/* ── Smooth theme transition on everything ────────────── */
+/* ── Theme transition ─────────────────────────────────────── */
 *, *::before, *::after {
   transition:
-    background-color 0.3s ease,
-    border-color     0.3s ease,
-    color            0.3s ease,
-    box-shadow       0.3s ease;
+    background-color 0.25s var(--ease),
+    border-color     0.25s var(--ease),
+    color            0.2s  var(--ease),
+    box-shadow       0.25s var(--ease);
 }
-
-/* But don't slow down animations/transforms */
+/* Don't slow down transforms/animations */
+*[class*="skeleton"],
 *[style*="animation"],
-*[style*="transform"],
-.loading-skeleton {
+*[style*="transform"] {
   transition: none !important;
 }
 
+/* ── Base ─────────────────────────────────────────────────── */
 html, body {
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
-  font-size: 14px;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
   line-height: 1.5;
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 a { color: inherit; text-decoration: none; }
 button { cursor: pointer; border: none; background: none; font-family: inherit; font-size: inherit; color: inherit; }
 input, select, textarea { font-family: inherit; font-size: inherit; color: inherit; background: none; border: none; outline: none; }
 
-/* Scrollbar */
-::-webkit-scrollbar { width: 4px; }
+/* ── Scrollbar ─────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
 
-/* Animations */
+/* ── Tabular numbers (all mono) ───────────────────────────── */
+.tabular { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ── Animations ────────────────────────────────────────────── */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(20px); }
+  from { opacity: 0; transform: translateY(16px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes shimmer {
   0%   { background-position: -200% 0; }
   100% { background-position:  200% 0; }
 }
-
-.animate-in {
-  animation: fadeIn 0.25s ease forwards;
-}
-
-.loading-skeleton {
-  background: linear-gradient(90deg, var(--surface) 25%, var(--surface2) 50%, var(--surface) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  border-radius: var(--radius-sm);
-  transition: none !important;
-}
-
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
-
-/* Manager gate shake animation */
 @keyframes managerShake {
   0%,100% { transform: translateX(0); }
   20%      { transform: translateX(-8px); }
@@ -122,6 +176,41 @@ input, select, textarea { font-family: inherit; font-size: inherit; color: inher
   60%      { transform: translateX(-5px); }
   80%      { transform: translateX(5px); }
 }
-.manager-gate-shake {
-  animation: managerShake 0.4s ease !important;
+@keyframes popIn {
+  0%   { opacity: 0; transform: scale(0.92); }
+  60%  { transform: scale(1.02); }
+  100% { opacity: 1; transform: scale(1); }
 }
+
+.animate-in  { animation: fadeIn 0.2s var(--ease-out) forwards; }
+.animate-pop { animation: popIn  0.2s var(--ease-spring) forwards; }
+.manager-gate-shake { animation: managerShake 0.4s var(--ease) !important; }
+
+/* ── Skeleton ──────────────────────────────────────────────── */
+.loading-skeleton {
+  background: linear-gradient(90deg,
+    var(--surface)  25%,
+    var(--surface2) 50%,
+    var(--surface)  75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Input focus ring ─────────────────────────────────────── */
+.input-base {
+  width: 100%;
+  padding: 9px 13px;
+  background: var(--surface2);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--text-base);
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.input-base:focus {
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px rgba(91,141,239,0.12);
+}
+.input-base::placeholder { color: var(--text-placeholder); }
