@@ -4,6 +4,7 @@ import EntriesTable from "./EntriesTable";
 import PayrollPanel from "./PayrollPanel";
 import AnalyticsPanel from "./AnalyticsPanel";
 import ExportPanel from "./ExportPanel";
+import ManagerGate from "./ManagerGate";
 
 const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
 
@@ -48,6 +49,8 @@ const TAB_ICONS = {
 
 const TABS = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Payroll", "Export"];
 
+const MANAGER_TABS = new Set(["Startup", "Analytics", "Payroll", "Export"]);
+
 export default function MobileLayout({
   activeTab, setActiveTab,
   expenses, income, loading,
@@ -57,7 +60,9 @@ export default function MobileLayout({
   onDeleteExpense, onDeleteIncome,
   totalIncome, totalExpenses, net,
   theme, toggleTheme,
+  managerAuthed, managerLogout,
 }) {
+  const [pendingTab, setPendingTab] = useState(null);
   const [fabOpen, setFabOpen] = useState(false);
   const isTracking = !["Analytics", "Payroll", "Export"].includes(activeTab);
   const netPositive = net >= 0;
@@ -96,6 +101,34 @@ export default function MobileLayout({
                 </svg>
               )}
             </button>
+            {managerAuthed ? (
+              <button
+                onClick={() => {
+                  managerLogout();
+                  if (["Startup","Analytics","Payroll","Export"].includes(activeTab)) setActiveTab("Daily");
+                }}
+                style={{
+                  fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: 20,
+                  background: "var(--accent-dim)", color: "var(--accent)",
+                  border: "1px solid var(--accent-glow)", cursor: "pointer",
+                  letterSpacing: "0.04em", textTransform: "uppercase",
+                }}
+              >MGR ✕</button>
+            ) : (
+              <button
+                onClick={() => setPendingTab("__login__")}
+                style={{
+                  fontSize: 10, padding: "4px 8px", borderRadius: 6,
+                  background: "transparent", color: "var(--text-dim)",
+                  border: "1px solid transparent", cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 3,
+                }}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+              </button>
+            )}
           </div>
         </div>
 
@@ -229,6 +262,15 @@ export default function MobileLayout({
         />
       )}
 
+      {/* Manager auth gate */}
+      {pendingTab && (
+        <ManagerGate
+          tabName={pendingTab}
+          onSuccess={() => { if (pendingTab !== '__login__') setActiveTab(pendingTab); setPendingTab(null); }}
+          onCancel={() => setPendingTab(null)}
+        />
+      )}
+
       {/* Bottom tab bar — fixed 56px, never resizes */}
       <nav style={{
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
@@ -242,7 +284,13 @@ export default function MobileLayout({
         {TABS.map((tab) => {
           const active = activeTab === tab;
           return (
-            <button key={tab} onClick={() => setActiveTab(tab)} style={{
+            <button key={tab} onClick={() => {
+                if (MANAGER_TABS.has(tab) && !managerAuthed) {
+                  setPendingTab(tab);
+                } else {
+                  setActiveTab(tab);
+                }
+              }} style={{
               flex: 1, height: 56,
               display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3,
               background: "none", border: "none", cursor: "pointer",
@@ -251,8 +299,13 @@ export default function MobileLayout({
               flexShrink: 0, minWidth: 0,
             }}>
               {TAB_ICONS[tab]?.(active)}
-              <span style={{ fontSize: 9, fontWeight: active ? 600 : 400, letterSpacing: "0.02em", lineHeight: 1 }}>
+              <span style={{ fontSize: 9, fontWeight: active ? 600 : 400, letterSpacing: "0.02em", lineHeight: 1, display: "flex", alignItems: "center", gap: 2 }}>
                 {tab}
+                {MANAGER_TABS.has(tab) && !managerAuthed && (
+                  <svg width="7" height="7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4 }}>
+                    <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                  </svg>
+                )}
               </span>
             </button>
           );
