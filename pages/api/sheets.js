@@ -40,7 +40,9 @@ export default async function handler(req, res) {
 // Returns one of these tags, or null if the row should be skipped.
 
 function classifyRow(row) {
-  const b = (row[1] ?? "").toString().trim();
+  const raw = (row[1] ?? "").toString();
+  // Normalize: collapse newlines and extra whitespace for matching
+  const b = raw.replace(/\s+/g, " ").trim();
   const c = row[2];
 
   if (!b && !c) return null;                                          // blank
@@ -49,9 +51,11 @@ function classifyRow(row) {
   if (b === "Position")                            return "position";
   if (b === "Hours Worked" ||
       b === "Total Hours Worked")                  return "hours";
-  if (b.startsWith("Credit Card"))                 return "cc_tips";
+  if (b.startsWith("Credit Card") ||
+      b.startsWith("CC Tips") ||
+      b === "Pooled CC Tips")              return "cc_tips";
   if (b.startsWith("Cash Tips"))                   return "cash_tips";
-  if (b === "Total Tips Allocated" ||
+  if (b.startsWith("Total Tips") ||
       b.startsWith("Tips Portioned"))              return "total_tips";
   if (b === "Weekly Tips")                         return "weekly_tips";
   if (b === "Tip Payouts" ||
@@ -235,13 +239,15 @@ function parseSheet(rows) {
         if (!posRow_   && rtag === "position")   { posRow_   = r; continue; }
         if (!hoursRow_ && rtag === "hours")      { hoursRow_ = r; continue; }
         if (!ccRow_    && rtag === "cc_tips") {
-          ccRow_ = hasNumericData(r) ? r : (rows[j + 1] || []);
-          if (!hasNumericData(r)) j++;
+          // Merged cell: label row may have no values — values on label row OR next row
+          const nextR = rows[j + 1] || [];
+          ccRow_ = hasNumericData(r) ? r : hasNumericData(nextR) ? nextR : r;
+          // Don't skip j+1 — let the loop naturally process it in case it's also labelled
           continue;
         }
         if (!cashRow_  && rtag === "cash_tips") {
-          cashRow_ = hasNumericData(r) ? r : (rows[j + 1] || []);
-          if (!hasNumericData(r)) j++;
+          const nextR = rows[j + 1] || [];
+          cashRow_ = hasNumericData(r) ? r : hasNumericData(nextR) ? nextR : r;
           continue;
         }
         if (!totalRow_ && rtag === "total_tips") {
@@ -300,10 +306,15 @@ function toNum(val) {
 
 function formatDate(val) {
   if (!val) return "";
-  if (typeof val === "string") {
-    const m = val.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
-    return val;
-  }
-  return String(val);
+  const s = String(val).trim();
+
+  // ISO datetime: "2026-06-09 00:00:00" or "2026-06-09T00:00:00"
+  const iso = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+
+  // US format: "06/09/2026"
+  const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (us) return `${us[3]}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
+
+  return s;
 }
