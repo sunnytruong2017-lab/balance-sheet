@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { ThemeContext } from "../lib/ThemeContext";
-import { ManagerAuthContext } from "../lib/ManagerAuthContext";
+import { ManagerAuthContext } from "../components/ManagerGate";
 import "../styles/globals.css";
 
 export default function App({ Component, pageProps }) {
