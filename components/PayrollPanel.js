@@ -199,12 +199,11 @@ export default function PayrollPanel() {
     }).filter(Boolean);
   }
 
-  // Build payroll for the tips tabs — uses the correct daily blocks per sheet
-  function buildWeeklyPayroll(sheetData, dailyBlocksOverride) {
-    const blocks = dailyBlocksOverride || sheetData.dailyBlocks;
+  // Build payroll for a single sheet (for the tips tabs)
+  function buildWeeklyPayroll(sheetData) {
     return sheetData.employees.map((emp) => {
       const rate  = savedWages[emp.name] || 0;
-      const hours = blocks.reduce((sum, day) => {
+      const hours = sheetData.dailyBlocks.reduce((sum, day) => {
         const de = day.employees.find((e) => e.name === emp.name);
         return sum + (de?.hours || 0);
       }, 0);
@@ -214,16 +213,8 @@ export default function PayrollPanel() {
 
   const biweeklyPayroll  = buildBiweeklyPayroll();
   const currentPayroll   = buildWeeklyPayroll(current);
-  // Past uses only the most recent week's daily blocks to avoid summing all history
-  const pastPayroll      = buildWeeklyPayroll(past, pastMostRecentBlocks);
+  const pastPayroll      = buildWeeklyPayroll(past);
   const allWeeks         = sheetsData?.past?.allWeeks || [];
-
-  // past.dailyBlocks contains ALL historical days. To get just the most recent
-  // week's data for "Last Week's Tips", filter to the 7 most recent dates only.
-  // Filter past.dailyBlocks to the 7 most recent dates only (avoids summing all history)
-  const _pastBlocks = past.dailyBlocks;
-  const _pastUniqueDates = [...new Set(_pastBlocks.map((b) => b.date))].sort().reverse().slice(0, 7);
-  const pastMostRecentBlocks = _pastBlocks.filter((b) => _pastUniqueDates.includes(b.date));
 
   // Build a map of dual-role employees: { name: Set(['FOH','BOH']) }
   // Detected from daily blocks where roleHours contains multiple roles
@@ -452,8 +443,6 @@ export default function PayrollPanel() {
               )}
               {currentPayroll.length > 0 && (
                 <TotalFooter items={[
-                  { label: "Total CC Tips",   value: fmt(currentPayroll.reduce((s, e) => { const cc = current.dailyBlocks.reduce((a, d) => a + (d.employees.find((x) => x.name === e.name)?.ccTips || 0), 0); return s + cc; }, 0)), color: "var(--text-muted)" },
-                  { label: "Total Cash Tips", value: fmt(currentPayroll.reduce((s, e) => { const cash = current.dailyBlocks.reduce((a, d) => a + (d.employees.find((x) => x.name === e.name)?.cashTips || 0), 0); return s + cash; }, 0)), color: "var(--text-muted)" },
                   { label: "Total Weekly Tips", value: fmt(totalCurrentTips), color: "var(--yellow)", bold: true },
                 ]} />
               )}
@@ -496,8 +485,8 @@ export default function PayrollPanel() {
                   const wk     = makeWeekKey("past", past.weekLabel || "past");
                   const payout = getPayout(wk, emp.name);
                   const sk     = `${wk}::${emp.name}`;
-                  const ccTips   = pastMostRecentBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.ccTips   || 0), 0);
-                  const cashTips = pastMostRecentBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.cashTips || 0), 0);
+                  const ccTips   = past.dailyBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.ccTips   || 0), 0);
+                  const cashTips = past.dailyBlocks.reduce((s, d) => s + (d.employees.find((e) => e.name === emp.name)?.cashTips || 0), 0);
                   return (
                     <TableRow key={emp.name} cols={7} last={i === pastPayroll.length - 1} cells={[
                       <Name>{emp.name}</Name>,
@@ -514,8 +503,6 @@ export default function PayrollPanel() {
               )}
               {pastPayroll.length > 0 && (
                 <TotalFooter items={[
-                  { label: "Total CC Tips",   value: fmt(pastPayroll.reduce((s, e) => { const cc = pastMostRecentBlocks.reduce((a, d) => a + (d.employees.find((x) => x.name === e.name)?.ccTips || 0), 0); return s + cc; }, 0)), color: "var(--text-muted)" },
-                  { label: "Total Cash Tips", value: fmt(pastPayroll.reduce((s, e) => { const cash = pastMostRecentBlocks.reduce((a, d) => a + (d.employees.find((x) => x.name === e.name)?.cashTips || 0), 0); return s + cash; }, 0)), color: "var(--text-muted)" },
                   { label: "Total Weekly Tips", value: fmt(totalPastTips), color: "var(--yellow)", bold: true },
                 ]} />
               )}
@@ -575,8 +562,6 @@ export default function PayrollPanel() {
                       ]} />
                     );
                   })}
-                  {/* Daily totals row */}
-                  <DayTotalsFooter employees={day.employees} />
                 </>
               )}
             </Panel>
@@ -595,7 +580,6 @@ export default function PayrollPanel() {
             <Panel><Empty text="No week history found in Past Weeks sheet" /></Panel>
           ) : allWeeks.map((week) => {
             const weekTotal = week.weeklyTipsTotal || 0;
-            const wk = makeWeekKey("history", week.weekLabel);
             return (
               <Panel key={week.weekLabel}>
                 <div style={{ padding: "12px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -606,47 +590,33 @@ export default function PayrollPanel() {
                 </div>
                 {isMobile ? (
                   <div>
-                    {week.employees.map((emp, idx) => {
-                      const payout = getPayout(wk, emp.name);
-                      const sk     = `${wk}::${emp.name}`;
-                      return (
-                        <div key={emp.name} style={{
-                          padding: "10px 14px",
-                          borderBottom: idx < week.employees.length - 1 ? "1px solid var(--border)" : "none",
-                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-                        }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-                            <span style={{ fontWeight: 500, fontSize: 13 }}>{emp.name}</span>
-                            <EmployeeBadges name={emp.name} position={emp.position} />
-                          </div>
-                          <span style={{ fontFamily: "var(--font-mono)", color: "var(--yellow)", fontWeight: 600, fontSize: 13, flexShrink: 0 }}>
-                            {fmt(emp.weeklyTips)}
-                          </span>
-                          <PayoutButton paid={payout.paid} saving={!!payoutSaving[sk]}
-                            onToggle={() => togglePayout(emp.name, wk, emp.weeklyTips, payout.paid)} />
+                    {week.employees.map((emp, idx) => (
+                      <div key={emp.name} style={{
+                        padding: "10px 14px",
+                        borderBottom: idx < week.employees.length - 1 ? "1px solid var(--border)" : "none",
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontWeight: 500, fontSize: 13 }}>{emp.name}</span>
+                          <EmployeeBadges name={emp.name} position={emp.position} />
                         </div>
-                      );
-                    })}
+                        <span style={{ fontFamily: "var(--font-mono)", color: "var(--yellow)", fontWeight: 600, fontSize: 13 }}>
+                          {fmt(emp.weeklyTips)}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <>
-                    <TableHeader cols={["Employee", "Position", "Weekly Tips", "Tips Paid Out?"]} />
-                    {week.employees.map((emp, idx) => {
-                      const payout = getPayout(wk, emp.name);
-                      const sk     = `${wk}::${emp.name}`;
-                      return (
-                        <TableRow key={emp.name} cols={4} last={idx === week.employees.length - 1} cells={[
-                          <Name>{emp.name}</Name>,
-                          <EmployeeBadges name={emp.name} position={emp.position} />,
-                          <Mono yellow bold>{fmt(emp.weeklyTips)}</Mono>,
-                          <PayoutButton paid={payout.paid} saving={!!payoutSaving[sk]}
-                            onToggle={() => togglePayout(emp.name, wk, emp.weeklyTips, payout.paid)} />,
-                        ]} />
-                      );
-                    })}
+                    <TableHeader cols={["Employee", "Position", "Weekly Tips"]} />
+                    {week.employees.map((emp, idx) => (
+                      <TableRow key={emp.name} cols={3} last={idx === week.employees.length - 1} cells={[
+                        <Name>{emp.name}</Name>,
+                        <EmployeeBadges name={emp.name} position={emp.position} />,
+                        <Mono yellow bold>{fmt(emp.weeklyTips)}</Mono>,
+                      ]} />
+                    ))}
                     <TotalFooter items={[
-                      { label: "Paid Out",   value: fmt(week.employees.filter((e) => getPayout(wk, e.name).paid).reduce((s, e) => s + e.weeklyTips, 0)), color: "var(--green)" },
-                      { label: "Unpaid",     value: fmt(week.employees.filter((e) => !getPayout(wk, e.name).paid).reduce((s, e) => s + e.weeklyTips, 0)), color: "var(--text-muted)" },
                       { label: "Week Total", value: fmt(weekTotal), color: "var(--yellow)", bold: true },
                     ]} />
                   </>
@@ -924,21 +894,6 @@ function TableRow({ cells, cols, last }) {
       style={{ display: "grid", gridTemplateColumns: `repeat(${cols || cells.length}, 1fr)`, padding: "11px 18px", borderBottom: last ? "none" : "1px solid var(--border)", background: hover ? "var(--surface2)" : "transparent", transition: "background 0.1s ease", alignItems: "center", fontSize: 13 }}>
       {cells.map((cell, i) => <div key={i}>{cell}</div>)}
     </div>
-  );
-}
-
-function DayTotalsFooter({ employees }) {
-  const filtered = employees.filter((e) => e.hours > 0 || e.totalTips > 0);
-  if (!filtered.length) return null;
-  const totalCC   = filtered.reduce((s, e) => s + (e.ccTips   || 0), 0);
-  const totalCash = filtered.reduce((s, e) => s + (e.cashTips || 0), 0);
-  const totalTips = filtered.reduce((s, e) => s + (e.totalTips || 0), 0);
-  return (
-    <TotalFooter items={[
-      { label: "Total CC Tips",   value: fmt(totalCC),   color: "var(--text-muted)" },
-      { label: "Total Cash Tips", value: fmt(totalCash), color: "var(--text-muted)" },
-      { label: "Day Total",       value: fmt(totalTips), color: "var(--yellow)", bold: true },
-    ]} />
   );
 }
 
