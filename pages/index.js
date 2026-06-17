@@ -9,8 +9,7 @@ import AnalyticsPanel from "../components/AnalyticsPanel";
 import MobileLayout from "../components/MobileLayout";
 import { useIsMobile } from "../lib/useIsMobile";
 import ExportPanel from "../components/ExportPanel";
-import ManagerGate from "../components/ManagerGate";
-import { useManagerAuth } from "../lib/ManagerAuthContext";
+import ManagerGate, { useManagerAuth } from "../components/ManagerGate";
 
 const tabs = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Payroll", "Export"];
 const MANAGER_TABS = new Set(["Startup", "Analytics", "Payroll", "Export"]);
