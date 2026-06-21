@@ -76,7 +76,12 @@ export default function Home() {
     if (activeTab === "Payroll" || activeTab === "Analytics") return;
     setLoading(true);
     try {
-      const params = new URLSearchParams({ frequency });
+      // Daily and Startup show only entries explicitly tagged with that frequency.
+      // Biweekly and Monthly are rollup views — they show ALL entries (any frequency)
+      // whose date falls within that period, so nothing gets hidden just because
+      // it was logged under a different tab.
+      const isRollupView = activeTab === "Biweekly" || activeTab === "Monthly";
+      const params = new URLSearchParams(isRollupView ? {} : { frequency });
       if (dateRange.start) params.set("startDate", dateRange.start);
       if (dateRange.end)   params.set("endDate",   dateRange.end);
 
