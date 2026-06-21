@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, parseISO } from "date-fns";
 import EntryModal from "../components/EntryModal";
 import PayrollPanel from "../components/PayrollPanel";
@@ -200,7 +200,7 @@ export default function Home() {
   const sharedProps = {
     activeTab, setActiveTab: handleTabClick,
     expenses, income, loading,
-    referenceDate, periodLabel, shiftDate,
+    referenceDate, setReferenceDate, periodLabel, shiftDate,
     onAddExpense:   () => setModal({ type: "expense" }),
     onAddIncome:    () => setModal({ type: "income"  }),
     onEditExpense:  (e) => setModal({ type: "expense", entry: e }),
@@ -318,7 +318,11 @@ export default function Home() {
                 {activeTab !== "Startup" ? (
                   <>
                     <NavBtn onClick={() => shiftDate(-1)}>‹</NavBtn>
-                    <span style={{ fontSize: "var(--text-lg)", fontWeight: 700, minWidth: 180, textAlign: "center", letterSpacing: "-0.02em" }}>{periodLabel}</span>
+                    <DatePickerLabel
+                      label={periodLabel}
+                      value={format(referenceDate, "yyyy-MM-dd")}
+                      onChange={(dateStr) => setReferenceDate(parseISO(dateStr))}
+                    />
                     <NavBtn onClick={() => shiftDate(1)}>›</NavBtn>
                   </>
                 ) : (
@@ -402,6 +406,55 @@ export default function Home() {
     </div>
   );
 }
+function DatePickerLabel({ label, value, onChange }) {
+  const [hover, setHover] = useState(false);
+  const inputRef = useRef(null);
+
+  function openPicker() {
+    const el = inputRef.current;
+    if (!el) return;
+    if (typeof el.showPicker === "function") {
+      el.showPicker();
+    } else {
+      el.focus();
+      el.click();
+    }
+  }
+
+  return (
+    <div
+      onClick={openPicker}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      title="Click to jump to a specific date"
+      style={{
+        position: "relative",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+        minWidth: 180, padding: "4px 10px", borderRadius: "var(--radius-sm)",
+        cursor: "pointer",
+        background: hover ? "var(--surface2)" : "transparent",
+        border: `1px solid ${hover ? "var(--border)" : "transparent"}`,
+        transition: "all 0.15s var(--ease)",
+      }}
+    >
+      <span style={{ fontSize: "var(--text-lg)", fontWeight: 700, letterSpacing: "-0.02em" }}>{label}</span>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: hover ? 1 : 0.5, transition: "opacity 0.15s" }}>
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+      <input
+        ref={inputRef}
+        type="date"
+        value={value}
+        onChange={(e) => e.target.value && onChange(e.target.value)}
+        style={{
+          position: "absolute", inset: 0, width: "100%", height: "100%",
+          opacity: 0, cursor: "pointer", border: "none",
+        }}
+      />
+    </div>
+  );
+}
+
 function NavBtn({ onClick, children }) {
   const [hover, setHover] = useState(false);
   return (
