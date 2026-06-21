@@ -49,12 +49,36 @@ const TAB_ICONS = {
 
 const TABS = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Payroll", "Export"];
 
+function MobileDatePickerLabel({ label, value, onChange }) {
+  const inputRef = useRef(null);
+
+  function openPicker() {
+    const el = inputRef.current;
+    if (!el) return;
+    if (typeof el.showPicker === "function") el.showPicker();
+    else { el.focus(); el.click(); }
+  }
+
+  return (
+    <div onClick={openPicker} style={{ position: "relative", display: "flex", alignItems: "center" }}>
+      <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
+      <input
+        ref={inputRef}
+        type="date"
+        value={value}
+        onChange={(e) => e.target.value && onChange(e.target.value)}
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer", border: "none" }}
+      />
+    </div>
+  );
+}
+
 const MANAGER_TABS = new Set(["Startup", "Analytics", "Payroll", "Export"]);
 
 export default function MobileLayout({
   activeTab, setActiveTab,
   expenses, income, loading,
-  referenceDate, periodLabel, shiftDate,
+  referenceDate, setReferenceDate, periodLabel, shiftDate,
   onAddExpense, onAddIncome,
   onEditExpense, onEditIncome,
   onDeleteExpense, onDeleteIncome,
@@ -168,7 +192,11 @@ export default function MobileLayout({
               background: "var(--surface2)", color: "var(--text-muted)",
               fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
             }}>‹</button>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>{periodLabel}</span>
+            <MobileDatePickerLabel
+              label={periodLabel}
+              value={format(referenceDate, "yyyy-MM-dd")}
+              onChange={(dateStr) => setReferenceDate(parseISO(dateStr))}
+            />
             <button onClick={() => shiftDate(1)} style={{
               width: 32, height: 32, borderRadius: "50%", border: "none",
               background: "var(--surface2)", color: "var(--text-muted)",
