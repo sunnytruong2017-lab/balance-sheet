@@ -3,12 +3,18 @@ import { format, parseISO } from "date-fns";
 import EntriesTable from "./EntriesTable";
 import AnalyticsPanel from "./AnalyticsPanel";
 import ExportPanel from "./ExportPanel";
+import PayrollPanel from "./PayrollPanel";
 import ManagerGate from "./ManagerGate";
 
 const fmt = (n) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
 
 // Tab icons as inline SVGs
 const TAB_ICONS = {
+  Payroll: (active) => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+  ),
   Daily: (active) => (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={active ? 2.2 : 1.8} strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
@@ -41,7 +47,7 @@ const TAB_ICONS = {
   ),
 };
 
-const TABS = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Export"];
+const TABS = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Payroll", "Export"];
 
 function MobileDatePickerLabel({ label, value, onChange }) {
   const inputRef = useRef(null);
@@ -67,7 +73,7 @@ function MobileDatePickerLabel({ label, value, onChange }) {
   );
 }
 
-const MANAGER_TABS = new Set(["Startup", "Analytics", "Export"]);
+const MANAGER_TABS = new Set(["Startup", "Analytics", "Payroll", "Export"]);
 
 export default function MobileLayout({
   activeTab, setActiveTab,
@@ -82,7 +88,7 @@ export default function MobileLayout({
 }) {
   const [pendingTab, setPendingTab] = useState(null);
   const [fabOpen, setFabOpen] = useState(false);
-  const isTracking = !["Analytics", "Export"].includes(activeTab);
+  const isTracking = !["Analytics", "Payroll", "Export"].includes(activeTab);
   const netPositive = net >= 0;
 
   return (
@@ -123,7 +129,7 @@ export default function MobileLayout({
               <button
                 onClick={() => {
                   managerLogout();
-                  if (["Startup","Analytics","Export"].includes(activeTab)) setActiveTab("Daily");
+                  if (["Startup","Analytics","Payroll","Export"].includes(activeTab)) setActiveTab("Daily");
                 }}
                 style={{
                   fontSize: 10, fontWeight: 600, padding: "3px 8px", borderRadius: 20,
@@ -207,6 +213,7 @@ export default function MobileLayout({
 
       {/* Main content */}
       <main style={{ flex: 1, padding: "16px", display: "flex", flexDirection: "column", gap: 16 }}>
+        {activeTab === "Payroll"   && <PayrollPanel />}
         {activeTab === "Analytics" && <AnalyticsPanel />}
         {activeTab === "Export" && <ExportPanel />}
 
