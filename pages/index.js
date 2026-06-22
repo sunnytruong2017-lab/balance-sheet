@@ -5,13 +5,14 @@ import SummaryBar from "../components/SummaryBar";
 import EntriesTable from "../components/EntriesTable";
 import { useTheme } from "../lib/ThemeContext";
 import AnalyticsPanel from "../components/AnalyticsPanel";
+import PayrollPanel from "../components/PayrollPanel";
 import MobileLayout from "../components/MobileLayout";
 import { useIsMobile } from "../lib/useIsMobile";
 import ExportPanel from "../components/ExportPanel";
 import ManagerGate, { useManagerAuth } from "../components/ManagerGate";
 
-const tabs = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Export"];
-const MANAGER_TABS = new Set(["Startup", "Analytics", "Export"]);
+const tabs = ["Daily", "Biweekly", "Monthly", "Startup", "Analytics", "Payroll", "Export"];
+const MANAGER_TABS = new Set(["Startup", "Analytics", "Payroll", "Export"]);
 
 // Default built-in categories per tab (always shown, cannot be deleted)
 const DEFAULT_EXPENSE_CATEGORIES = {
@@ -72,7 +73,7 @@ export default function Home() {
   }, []);
 
   const fetchData = useCallback(async () => {
-    if (activeTab === "Analytics") return;
+    if (activeTab === "Analytics" || activeTab === "Payroll") return;
     setLoading(true);
     try {
       // Daily and Startup show only entries explicitly tagged with that frequency.
@@ -176,6 +177,7 @@ export default function Home() {
     Biweekly: `Week of ${format(parseISO(dateRange.start), "MMM d")}`,
     Monthly:  format(referenceDate, "MMMM yyyy"),
     Startup:  "All Time",
+    Payroll:  "Payroll",
   }[activeTab];
 
   function shiftDate(delta) {
@@ -275,7 +277,7 @@ export default function Home() {
           </div>
         </div>
 
-        {activeTab !== "Analytics" && activeTab !== "Export" && (
+        {activeTab !== "Analytics" && activeTab !== "Export" && activeTab !== "Payroll" && (
           <SummaryBar totalIncome={totalIncome} totalExpenses={totalExpenses} net={net} period={periodLabel} loading={loading} />
         )}
 
@@ -302,7 +304,9 @@ export default function Home() {
 
       {/* Main */}
       <main style={{ flex: 1, maxWidth: 1100, margin: "0 auto", width: "100%", padding: "var(--sp-8) var(--sp-6)" }}>
-        {activeTab === "Analytics" ? (
+        {activeTab === "Payroll" ? (
+          <PayrollPanel />
+        ) : activeTab === "Analytics" ? (
           <AnalyticsPanel />
         ) : activeTab === "Export" ? (
           <ExportPanel />
