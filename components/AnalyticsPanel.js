@@ -14,10 +14,12 @@ const RANGES = [
 
 export default function AnalyticsPanel() {
   const isMobile = useIsMobile();
-  const [range, setRange]       = useState("30d");
-  const [expenses, setExpenses] = useState([]);
-  const [income, setIncome]     = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const [range, setRange]           = useState("30d");
+  const [expenses, setExpenses]     = useState([]);
+  const [income, setIncome]         = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [payroll, setPayroll]       = useState(null);
+  const [payrollLoading, setPayrollLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
@@ -35,6 +37,22 @@ export default function AnalyticsPanel() {
     }
     load();
   }, [range]);
+
+  useEffect(() => {
+    async function loadPayroll() {
+      setPayrollLoading(true);
+      try {
+        const now   = new Date();
+        const month = now.getMonth() + 1;
+        const year  = now.getFullYear();
+        const half  = now.getDate() <= 15 ? 1 : 2;
+        const res   = await fetch(`/api/payroll?month=${month}&year=${year}&half=${half}`);
+        if (res.ok) setPayroll(await res.json());
+      } catch (e) { console.error(e); }
+      finally { setPayrollLoading(false); }
+    }
+    loadPayroll();
+  }, []);
 
   const { start, end } = getRangeDates(range);
   const isMonthly = range === "12m";
@@ -109,6 +127,58 @@ export default function AnalyticsPanel() {
       <ChartCard title="Net Profit Trend" loading={loading} isMobile={isMobile}>
         <LineChart buckets={buckets} isMobile={isMobile} />
       </ChartCard>
+
+      {/* ── Labor section ── */}
+      {payroll && (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+            <div style={{ height: 1, flex: 1, background: "var(--border)" }} />
+            <span style={{ fontSize: 11, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: "0.07em" }}>Labor — {payroll.period?.start} to {payroll.period?.end}</span>
+            <div style={{ height: 1, flex: 1, background: "var(--border)" }} />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(4, 1fr)", gap: isMobile ? 8 : 12 }}>
+            <KpiCard label="Total Wages"   value={payrollLoading ? null : fmtFull(payroll.totals?.wages)}  color="var(--blue)"   isMobile={isMobile} />
+            <KpiCard label="Total Tips"    value={payrollLoading ? null : fmtFull(payroll.totals?.tips)}   color="var(--accent)" isMobile={isMobile} />
+            <KpiCard label="Total Labor"   value={payrollLoading ? null : fmtFull(payroll.totals?.total)}  color="var(--red)"    isMobile={isMobile} />
+            <KpiCard
+              label="Labor Cost %"
+              value={payrollLoading || !totalIncome ? null : `${((payroll.totals?.wages || 0) / totalIncome * 100).toFixed(1)}%`}
+              color={(payroll.totals?.wages || 0) / totalIncome > 0.35 ? "var(--red)" : "var(--green)"}
+              isMobile={isMobile}
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: isMobile ? 14 : 20 }}>
+            <ChartCard title="Labor Cost by Employee" loading={payrollLoading} isMobile={isMobile}>
+              <HorizontalBars
+                data={(payroll.records || [])
+                  .reduce((acc, r) => {
+                    const existing = acc.find((a) => a[0] === r.employee);
+                    if (existing) existing[1] += r.total;
+                    else acc.push([r.employee, r.total]);
+                    return acc;
+                  }, [])
+                  .sort((a, b) => b[1] - a[1])}
+                total={payroll.totals?.total || 1}
+                color="var(--blue)"
+                isMobile={isMobile}
+              />
+            </ChartCard>
+            <ChartCard title="FOH vs BOH Labor Split" loading={payrollLoading} isMobile={isMobile}>
+              <HorizontalBars
+                data={[
+                  ["FOH (Front of House)", (payroll.records || []).filter((r) => r.role === "FOH").reduce((s, r) => s + r.total, 0)],
+                  ["BOH (Back of House)",  (payroll.records || []).filter((r) => r.role === "BOH").reduce((s, r) => s + r.total, 0)],
+                ]}
+                total={payroll.totals?.total || 1}
+                color="var(--blue)"
+                isMobile={isMobile}
+              />
+            </ChartCard>
+          </div>
+        </>
+      )}
 
     </div>
   );
