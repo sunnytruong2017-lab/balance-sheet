@@ -60,46 +60,73 @@ function normalizeName(v) {
 // { periodStart, periodEnd, employees: [{ name, position, role, hours, rate, wages, tipsTotal, paid }], totalWages }
 
 function parsePayrollSheet(rows) {
+  // The Sheets API strips leading empty columns per row, so the column
+  // indices shift. After stripping col A (always empty), the layout is:
+  //
+  // Period header row: [date, None, "-", date]  → indices 0,1,2,3
+  // Header row:        ["Employee", "Job Position(s)", "Total Hours", "Hourly Rate", "Total Pay...", ...]
+  // Employee row:      [name, position, hours, rate, totalPay, paid]  → indices 0-5
+  // Second role row:   [position, hours, rate]  → name is missing (col A blank = stripped)
+  // Total row:         ["TOTAL LABOR COST...", ?, ?, ?, totalWages]
+
   const periods = [];
   let i = 0;
 
   while (i < rows.length) {
-    const row  = rows[i] || [];
-    const colB = row[1];
-    const colC = row[2];
-    const colE = row[4];
+    const row = rows[i] || [];
 
-    // Period header: col B is a date, col C is "-", col E is a date
-    const periodStart = isoFromString(colB);
-    const periodEnd   = isoFromString(colE);
-    const isDash      = String(colC || "").trim() === "-";
+    // Period header: row[0] is a date string, row[2] is "-", row[3] is a date string
+    const periodStart = isoFromString(row[0]);
+    const periodEnd   = isoFromString(row[3]);
+    const isDash      = String(row[2] || "").trim() === "-";
 
     if (periodStart && periodEnd && isDash) {
-      // Skip the header row (i+1: "Employee | Job Position(s) | ...")
       const period = { periodStart, periodEnd, employees: [], totalWages: 0 };
-      let j = i + 2; // start at first data row
+      let j = i + 2; // skip header row
       let currentName = null;
 
       while (j < rows.length) {
-        const r    = rows[j] || [];
-        const name = normalizeName(r[1]);
-        const pos  = normalizeName(r[2]);
-        const hrs  = toNum(r[3]);
-        const rate = toNum(r[4]);
-        const pay  = r[5]; // may be string like "$876.69\n($981.92)" or plain number
-        const paid = r[6] === true;
+        const r = rows[j] || [];
+
+        // Detect row type by first non-null value
+        const firstVal = String(r[0] || "").trim();
 
         // TOTAL LABOR COST row → end of this period
-        if (name && name.toUpperCase().startsWith("TOTAL")) {
-          period.totalWages = toNum(r[5]);
+        if (firstVal.toUpperCase().startsWith("TOTAL")) {
+          period.totalWages = toNum(r[4]);
           i = j + 1;
           break;
         }
 
-        // New named employee
-        if (name && name !== "-") {
-          currentName = name;
-          // Extract wages (first line) and tips-included total (parenthetical)
+        // Next period header → end of this period
+        const nextStart = isoFromString(r[0]);
+        const nextDash  = String(r[2] || "").trim() === "-";
+        if (nextStart && nextDash) {
+          i = j;
+          break;
+        }
+
+        // Skip blank rows and header rows
+        if (!firstVal || firstVal === "Employee") { j++; continue; }
+
+        // Check if this is a named employee row or a second-role continuation
+        // Named employee: r[0]=name, r[1]=position, r[2]=hours, r[3]=rate, r[4]=pay, r[5]=paid
+        // Second role:    r[0]=position, r[1]=hours, r[2]=rate  (name column was empty → stripped)
+        //
+        // Heuristic: if r[2] is a number (hours) AND r[3] is a number (rate) → named employee
+        //            if r[1] is a number (hours) AND r[2] is a number (rate) → second role
+        const r2isNum = typeof r[2] === "number";
+        const r1isNum = typeof r[1] === "number";
+        const r3isNum = typeof r[3] === "number";
+
+        if (r2isNum && r3isNum) {
+          // Named employee row: [name, position, hours, rate, pay, paid]
+          currentName     = firstVal;
+          const pos       = normalizeName(r[1]) || "";
+          const hrs       = toNum(r[2]);
+          const rate      = toNum(r[3]);
+          const pay       = r[4];
+          const paid      = r[5] === true;
           const payStr    = String(pay || "");
           const lines     = payStr.split("\n");
           const wages     = toNum(lines[0]);
@@ -108,33 +135,33 @@ function parsePayrollSheet(rows) {
 
           period.employees.push({
             name:      currentName,
-            position:  pos || "",
+            position:  pos,
             role:      deriveRole(pos),
             hours:     hrs,
             rate,
-            wages:     Math.round(wages   * 100) / 100,
+            wages:     Math.round(wages    * 100) / 100,
             tipsTotal: Math.round(tipsTotal * 100) / 100,
             withTips:  Math.round(withTips  * 100) / 100,
             paid,
           });
-        } else if (!name && pos && currentName) {
-          // Continuation row for dual-role employee (blank name, different position)
+        } else if (r1isNum && currentName) {
+          // Second role row: [position, hours, rate]
+          const pos  = firstVal;
+          const hrs  = toNum(r[1]);
+          const rate = toNum(r[2]);
           const lastEmp = period.employees[period.employees.length - 1];
-          if (lastEmp && lastEmp.name === currentName) {
-            // Add a second role entry
-            period.employees.push({
-              name:      currentName,
-              position:  pos,
-              role:      deriveRole(pos),
-              hours:     hrs,
-              rate,
-              wages:     Math.round(hrs * rate * 100) / 100,
-              tipsTotal: 0,
-              withTips:  0,
-              paid:      lastEmp.paid, // same paid status
-              isSecondRole: true,
-            });
-          }
+          period.employees.push({
+            name:      currentName,
+            position:  pos,
+            role:      deriveRole(pos),
+            hours:     hrs,
+            rate,
+            wages:     Math.round(hrs * rate * 100) / 100,
+            tipsTotal: 0,
+            withTips:  0,
+            paid:      lastEmp?.paid || false,
+            isSecondRole: true,
+          });
         }
 
         j++;
@@ -156,104 +183,111 @@ function parsePayrollSheet(rows) {
 //   employees: [{ name, role, hours, ccTips, cashTips, total, paid }],
 //   dailyBreakdowns: [{ date, poolCC, poolCash, poolTotal, employees: [...] }] }
 
+// Tips sheet layout after Sheets API column stripping (leading empty col A removed):
+//
+// Period label:  row[0] = "06/16/2026 - 06/21/2026"
+// Pool header:   row[0] = "Pooled CC Tips", row[2] = "Pooled Cash Tips", row[4] = "Total Pooled Tips"
+// Pool values:   row[0] = 1148.07,          row[2] = 288,                row[4] = 1436.07
+// Emp header:    row[0] = "Employee", row[1] = "Job Role(s)", row[2] = "Hours...", ...
+// Employee row:  row[0] = name, row[1] = role, row[2] = hours, row[3] = ccTips, row[4] = cashTips, row[5] = total, row[6] = paid
+// Second role:   row[0] = role, row[1] = hours, row[2] = ccTips, row[3] = cashTips, row[4] = total, row[5] = paid
+// Daily date:    row[0] = Excel serial number (e.g. 46189)
+// Error checker: row[0] = "ERROR CHECKER: CORRECT"
+
 function parseTipsSheet(rows) {
   let result = null;
   let i = 0;
 
   while (i < rows.length) {
-    const row  = rows[i] || [];
-    const colB = row[1];
+    const row = rows[i] || [];
+    const r0  = String(row[0] || "").trim();
 
-    // Period label like "06/16/2026 - 06/21/2026"
-    if (typeof colB === "string" && colB.includes(" - ") && /\d{2}\/\d{2}\/\d{4}/.test(colB)) {
-      const parts = colB.split(" - ");
+    // Period label: "06/16/2026 - 06/21/2026"
+    if (r0.includes(" - ") && /\d{2}\/\d{2}\/\d{4}/.test(r0)) {
+      const parts       = r0.split(" - ");
       const periodStart = isoFromString(parts[0]);
       const periodEnd   = isoFromString(parts[1]);
 
-      // Next row: "Pooled CC Tips | · | Pooled Cash Tips | · | Total Pooled Tips"
-      // Row after: actual values
-      const poolRow  = rows[i + 2] || [];
-      const poolCC   = toNum(poolRow[1]);
-      const poolCash = toNum(poolRow[3]);
-      const poolTotal = toNum(poolRow[5]);
-
+      // Pool values are 2 rows down
+      const poolRow = rows[i + 2] || [];
       result = {
-        periodLabel: colB,
+        periodLabel: r0,
         periodStart,
         periodEnd,
-        poolCC,
-        poolCash,
-        poolTotal,
+        poolCC:    toNum(poolRow[0]),
+        poolCash:  toNum(poolRow[2]),
+        poolTotal: toNum(poolRow[4]),
         employees: [],
         dailyBreakdowns: [],
       };
 
-      // Skip to employee data (headers row at i+3, data starts i+4 or i+5)
+      // Find employee header row then start reading
       let j = i + 3;
-      // Find employee header row ("Employee | Job Role(s) | ...")
       while (j < rows.length && !isEmpHeader(rows[j])) j++;
-      j++; // skip header row, may have blank row after
+      j++; // skip header
 
       let currentName = null;
 
       while (j < rows.length) {
-        const r    = rows[j] || [];
-        const name = normalizeName(r[1]);
-        const role = normalizeName(r[2]);
+        const r = rows[j] || [];
+        const r0v = String(r[0] || "").trim();
 
-        // Hit a date row (daily breakdown) or ERROR CHECKER → end of period summary
-        if (isDateRow(r) || isErrorChecker(r)) {
-          i = j;
-          break;
+        if (isDateRow(r) || isErrorChecker(r)) { i = j; break; }
+        if (!r0v || r0v === "Employee") { j++; continue; }
+
+        // Employee vs second-role heuristic:
+        // Employee: r[1] is role string (FOH/BOH), r[2] is number (hours)
+        // Second role: r[0] is role string, r[1] is number (hours)
+        const r1isRole   = typeof r[1] === "string" && ["FOH","BOH"].includes(String(r[1]).trim());
+        const r1isNumber = typeof r[1] === "number";
+
+        if (r1isRole) {
+          // Named employee: [name, role, hours, ccTips, cashTips, total, paid]
+          currentName = r0v;
+          result.employees.push(makeTipEmp(r0v, r[1], r[2], r[3], r[4], r[5], r[6]));
+        } else if (r1isNumber && currentName) {
+          // Second role: [role, hours, ccTips, cashTips, total, paid]
+          result.employees.push(makeTipEmp(currentName, r0v, r[1], r[2], r[3], r[4], r[5], true));
         }
-
-        if (name && name !== "·") {
-          currentName = name;
-          result.employees.push(makeEmpTip(r));
-        } else if (!name && role && currentName) {
-          // Second role row
-          result.employees.push({ ...makeEmpTip(r), name: currentName, isSecondRole: true });
-        }
-
         j++;
       }
 
-      // Parse daily breakdowns
+      // Daily breakdowns
       while (i < rows.length) {
-        const r    = rows[i] || [];
-        const colB = r[1];
+        const r   = rows[i] || [];
+        const r0v = r[0];
 
         if (isDateRow(r)) {
-          const date    = isoFromString(colB) || isoFromSerial(colB);
+          const date    = isoFromSerial(r0v);
           const pRow    = rows[i + 2] || [];
           const dayPool = {
             date,
-            poolCC:    toNum(pRow[1]),
-            poolCash:  toNum(pRow[3]),
-            poolTotal: toNum(pRow[5]),
+            poolCC:    toNum(pRow[0]),
+            poolCash:  toNum(pRow[2]),
+            poolTotal: toNum(pRow[4]),
             employees: [],
           };
 
-          // Find employee header + data
           let k = i + 3;
           while (k < rows.length && !isEmpHeader(rows[k])) k++;
           k++;
 
           let curName = null;
           while (k < rows.length) {
-            const er = rows[k] || [];
-            if (isDateRow(er) || isErrorChecker(er) || !er.some((v) => v !== null)) {
-              i = isErrorChecker(er) ? k + 1 : k;
-              break;
-            }
-            const ename = normalizeName(er[1]);
-            const erole = normalizeName(er[2]);
-            if (ename && ename !== "·") {
-              curName = ename;
-              const emp = makeEmpTip(er);
+            const er   = rows[k] || [];
+            const er0v = String(er[0] || "").trim();
+            if (isDateRow(er) || isErrorChecker(er)) { i = isErrorChecker(er) ? k + 1 : k; break; }
+            if (!er0v) { k++; continue; }
+
+            const er1isRole   = typeof er[1] === "string" && ["FOH","BOH"].includes(String(er[1]).trim());
+            const er1isNumber = typeof er[1] === "number";
+
+            if (er1isRole) {
+              curName = er0v;
+              const emp = makeTipEmp(er0v, er[1], er[2], er[3], er[4], er[5], er[6]);
               if (emp.hours > 0 || emp.total > 0) dayPool.employees.push(emp);
-            } else if (!ename && erole && curName) {
-              const emp = { ...makeEmpTip(er), name: curName, isSecondRole: true };
+            } else if (er1isNumber && curName) {
+              const emp = makeTipEmp(curName, er0v, er[1], er[2], er[3], er[4], er[5], true);
               if (emp.hours > 0 || emp.total > 0) dayPool.employees.push(emp);
             }
             k++;
@@ -265,12 +299,12 @@ function parseTipsSheet(rows) {
           continue;
         }
 
+        // Stop at next period label or end
+        if (typeof r0v === "string" && r0v.includes(" - ") && /\d{2}\/\d{2}\/\d{4}/.test(r0v)) break;
         i++;
-        // Stop when we hit the next period label or end of sheet
-        if (result.dailyBreakdowns.length > 0 && isDateRange(rows[i])) break;
       }
 
-      return result; // Return the first (most recent) period
+      return result;
     }
 
     i++;
@@ -279,36 +313,30 @@ function parseTipsSheet(rows) {
   return result;
 }
 
-function makeEmpTip(r) {
+function makeTipEmp(name, role, hours, ccTips, cashTips, total, paid, isSecondRole) {
   return {
-    name:     normalizeName(r[1]) || "",
-    role:     normalizeName(r[2]) || "",
-    hours:    toNum(r[3]),
-    ccTips:   Math.round(toNum(r[4]) * 100) / 100,
-    cashTips: Math.round(toNum(r[5]) * 100) / 100,
-    total:    Math.round(toNum(r[6]) * 100) / 100,
-    paid:     r[7] === true,
+    name:         String(name || "").trim(),
+    role:         String(role || "").trim(),
+    hours:        toNum(hours),
+    ccTips:       Math.round(toNum(ccTips)   * 100) / 100,
+    cashTips:     Math.round(toNum(cashTips) * 100) / 100,
+    total:        Math.round(toNum(total)    * 100) / 100,
+    paid:         paid === true,
+    isSecondRole: !!isSecondRole,
   };
 }
 
 function isEmpHeader(row) {
-  const b = normalizeName((row || [])[1]);
-  return b === "Employee";
+  return String((row || [])[0] || "").trim() === "Employee";
 }
 
 function isErrorChecker(row) {
-  const b = String((row || [])[1] || "").trim();
-  return b.startsWith("ERROR CHECKER");
+  return String((row || [])[0] || "").trim().startsWith("ERROR CHECKER");
 }
 
 function isDateRow(row) {
-  const b = (row || [])[1];
-  return b && typeof b === "number" && b > 40000 && b < 50000; // Excel date serial
-}
-
-function isDateRange(row) {
-  const b = (row || [])[1];
-  return typeof b === "string" && b.includes(" - ") && /\d{2}\/\d{2}\/\d{4}/.test(b);
+  const v = (row || [])[0];
+  return typeof v === "number" && v > 40000 && v < 55000;
 }
 
 function deriveRole(position) {
